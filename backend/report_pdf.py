@@ -8,7 +8,7 @@ from reportlab.lib.utils import ImageReader
 from reportlab.platypus import BaseDocTemplate, PageTemplate, Frame, Paragraph, Spacer, Table, TableStyle, KeepTogether, Image
 from core import db, now, uid, get_object, put_object, BUCKET_PREFIX
 
-PDF_VERSION = "2.3"
+PDF_VERSION = "2.6"
 LOGO = Path(__file__).parent / "assets" / "logo_sm.png"
 NAVY, TEAL, EMERALD, INK, MUTED, LINE, SOFT = (colors.HexColor(c) for c in ("#0B132B", "#00A6C4", "#10B981", "#1C2541", "#5B6477", "#D6DCE5", "#F2F6FA"))
 W, H = A4
@@ -97,21 +97,67 @@ async def _blob(asset_id):
 
 
 def phase_grid(b, blobs):
-    cells, cw = [], CW / 3 - 4
+    n = max(1, len(b.get("phases", [])))
+    cells, cw = [], CW / n - 2
     for p in b.get("phases", []):
-        blob = blobs.get(p.get("overlay_asset_id")) or blobs.get(p.get("frame_asset_id"))
-        img = fit_image(blob, cw - 10, 150) if blob else Table([[P("Not identified in this video", "small")]], colWidths=[cw - 10], rowHeights=[60],
+        blob = blobs.get(p.get("ball_overlay_asset_id")) or blobs.get(p.get("overlay_asset_id")) or blobs.get(p.get("frame_asset_id"))
+        img = fit_image(blob, cw - 6, 70) if blob else Table([[P("Not identified in this video", "small")]], colWidths=[cw - 10], rowHeights=[60],
                                                                  style=[("BACKGROUND", (0, 0), (-1, -1), SOFT), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("ALIGN", (0, 0), (-1, -1), "CENTER")])
         st = {"detected": "Detected", "estimated": "Estimated", "unavailable": "Unavailable"}[p["status"]]
         meta = f"{st}" + (f" - t={p['t']}s - keypoint conf {p.get('keypoint_confidence')}" if p.get("t") is not None else "")
+        if p.get("t") is not None:
+            meta += f" - ball conf {p['ball']['conf']}" if p.get("ball") else " - ball not detected in this frame"
         cells.append([img, Paragraph(f"<b>{t(p['name'])}</b>", ST["cellb"]), P(meta, "small"), P(p.get("note", ""), "small")])
-    rows = []
-    for i in range(0, len(cells), 3):
-        row = [cells[j] if j < len(cells) else "" for j in range(i, i + 3)]
-        rows.append(row)
-    tb = Table(rows, colWidths=[CW / 3] * 3)
-    tb.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("ALIGN", (0, 0), (-1, -1), "CENTER"), ("BOTTOMPADDING", (0, 0), (-1, -1), 10)]))
+    rows = [[cells[j] for j in range(len(cells))]] if cells else [[""]]
+    tb = Table(rows, colWidths=[CW / n] * n)
+    tb.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("ALIGN", (0, 0), (-1, -1), "CENTER"), ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                            ("LEFTPADDING", (0, 0), (-1, -1), 2), ("RIGHTPADDING", (0, 0), (-1, -1), 2)]))
     return tb
+
+
+def score_block(sc, b):
+    if not sc.get("components"):
+        txt = f"<b>{sc['value']} / 100</b>" if sc.get("value") is not None else "<b>Insufficient evidence to calculate a reliable score.</b>"
+        return [Paragraph(txt, ST["h3"]), P(f"Saved with scoring method {sc.get('version', 'n/a')}.", "small")]
+    names = {m["key"]: m["name"] for m in b.get("metrics", [])}
+    if sc.get("value") is not None:
+        head = Paragraph(f"<font size=7.5 color='#5B6477'><b>OVERALL SCORE</b></font><br/><font size=30 color='#0B132B'><b>{sc['value']}</b></font><font size=11 color='#5B6477'> / 100</font>"
+                         f"<br/><font size=9 color='#10B981'><b>Technique Score</b></font>", ParagraphStyle("score", parent=ST["body"], leading=34))
+    else:
+        head = Paragraph("<font size=7.5 color='#5B6477'><b>OVERALL SCORE</b></font><br/><font size=12 color='#B45309'><b>Provisional - no overall score</b></font><br/>"
+                         "<font size=8 color='#5B6477'>Not enough reliable measurements. Components use only what could be measured.</font>", ParagraphStyle("prov", parent=ST["body"], leading=14))
+    ev = sc.get("evidence") or {}
+    side = Paragraph(f"Evidence: <b>{t(ev.get('level', 'n/a'))}</b> - coverage {round(sc.get('coverage', 0) * 100)}%, {sc.get('detected_phases')} detected phases, "
+                     f"keypoint conf {ev.get('mean_keypoint_confidence')}. Separate from technique quality. {sc['version']} / {sc.get('rubric_hash')}", ST["small"])
+    rows = [[Paragraph(h, ST["th"]) for h in ("Component", "Score", "Contribution", "Measured")]]
+    for c in sc["components"]:
+        rows.append([P(c["name"], "cell"), P(f"{round(c['score'])}/100" if c["score"] is not None else "Not measured", "cell"),
+                     P(f"+{c['contribution']} pts" if c.get("contribution") is not None and sc.get("value") is not None else "-", "cell"),
+                     P(f"{len(c['metrics'])} of {len(c['metrics']) + len(c['missing'])}", "cell")])
+    for n in sc.get("not_assessed") or []:
+        rows.append([P(n["name"], "cell"), P("Not assessed", "cell"), P("-", "cell"), P("needs repeats", "cell")])
+    comp = grid_table(rows, [120, 60, 65, CW - 165 - 245])
+    bt = Table([[[head, Spacer(1, 6), side], comp]], colWidths=[165, CW - 165])
+    bt.setStyle(TableStyle([("BACKGROUND", (0, 0), (0, 0), SOFT), ("LINEBEFORE", (0, 0), (0, 0), 4, TEAL), ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                            ("TOPPADDING", (0, 0), (-1, -1), 6), ("BOTTOMPADDING", (0, 0), (-1, -1), 6), ("LEFTPADDING", (0, 0), (0, 0), 10), ("LEFTPADDING", (1, 0), (1, 0), 8)]))
+    strong = ", ".join(names.get(k, k) for k in sc.get("strongest") or []) or "none stood out"
+    opp = ", ".join(names.get(k, k) for k in sc.get("opportunities") or []) or "no measured metric fell well outside its target"
+    return [bt, P(f"Strongest factors: {strong}. Main opportunities: {opp}. " + (sc.get("method") or {}).get("status", ""), "small")]
+
+
+def ball_block(ball):
+    if not ball:
+        return []
+    if ball.get("status") != "tracked":
+        body = [P(ball.get("message") or "Ball not reliably detected in this video."), P(" ".join(x for x in [ball.get("error")] + (ball.get("limitations") or [])[1:] if x), "small")]
+    else:
+        rows = [[Paragraph(h, ST["th"]) for h in ("Frames detected", "Detection coverage", "Highest-confidence detection", "Mean confidence")],
+                [P(f"{ball['frames_detected']} of {ball['frames_processed']}", "cell"), P(f"{ball['coverage'] * 100:.1f}%", "cell"),
+                 P(f"{ball['best']['conf']} at t={ball['best']['t']}s", "cell"), P(ball.get("mean_conf"), "cell")]]
+        lim = [f"Interrupted at {g['t_from']}s: {g['reason']}" for g in ball.get("gaps") or []] + list(ball.get("limitations") or [])
+        body = [grid_table(rows, [CW / 4] * 4), P("Tracking limitations: " + (" ".join(lim) or "none noted."), "small")]
+    body.append(P(f"{(ball.get('events') or {}).get('note', '')} Detector: {(ball.get('model') or {}).get('detector', 'n/a')} ({ball.get('version')}).", "small"))
+    return section("Ball tracking summary", *body)
 
 
 def build(rep, job, owner, blobs):
@@ -136,18 +182,7 @@ def build(rep, job, owner, blobs):
             ["Keypoint confidence", str((primary.get("quality") or {}).get("keypoint_confidence", "n/a")), "AI observation confidence", str(rep.get("overall_confidence") or "n/a")]]
     s.append(grid_table([[Paragraph(t(a), ST["cellb"]), P(b, "cell"), Paragraph(t(c), ST["cellb"]), P(d, "cell")] for a, b, c, d in info], [80, 180, 95, CW - 355], header=False))
     sc = primary.get("score") or {}
-    if sc.get("value") is not None:
-        box = [[Paragraph(f"<font size=7.5 color='#5B6477'><b>OVERALL SCORE</b></font><br/><font size=30 color='#0B132B'><b>{sc['value']}</b></font><font size=11 color='#5B6477'> / 100</font>",
-                          ParagraphStyle("score", parent=ST["body"], leading=34)),
-                P(f"Technique score ({sc['version']}): weighted mean of {len(sc['included'])} measured metrics covering {round(sc['coverage'] * 100)}% of metric weight, "
-                  f"{sc['detected_phases']} phases detected. Reference ranges are configurable coaching heuristics. Keypoint confidence is reported separately and does not indicate technique quality.", "small")]]
-    else:
-        box = [[Paragraph("<b>Insufficient evidence to calculate a reliable score.</b>", ST["h3"]),
-                P(f"A score needs {sc.get('requirements', 'measured pose metrics')}." + ("" if bios else " No pose measurements were available."), "small")]]
-    bt = Table(box, colWidths=[150, CW - 150])
-    bt.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), SOFT), ("LINEBEFORE", (0, 0), (0, -1), 4, TEAL), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                            ("TOPPADDING", (0, 0), (-1, -1), 10), ("BOTTOMPADDING", (0, 0), (-1, -1), 10), ("LEFTPADDING", (0, 0), (-1, -1), 10)]))
-    s += [Spacer(1, 10), bt]
+    s += [Spacer(1, 10), *score_block(sc, primary)]
     if not measured:
         s.append(P("This report contains AI visual observations only. Joint angles and phase timings were not measured, so no biomechanical metrics or score are shown.", "small"))
     for b in bios:
@@ -157,7 +192,9 @@ def build(rep, job, owner, blobs):
             s += section(f"Kinematic breakdown - {label}", P(f"Pose estimation unavailable: {b.get('error', '')}"))
             continue
         blobs_ok = phase_grid(b, blobs)
-        s += section(f"Kinematic breakdown - {label} camera", P("Frames extracted from the uploaded video at the timestamps shown. Skeleton overlays are drawn from detected pose keypoints (teal lines; green = confidence >= 0.5, amber = 0.3-0.5).", "small"), blobs_ok)
+        s += section(f"Kinematic breakdown - {label} camera", P("Frames extracted from the uploaded video at the timestamps shown. Skeleton overlays are drawn from detected pose keypoints (teal lines; green = confidence >= 0.5, amber = 0.3-0.5). "
+                                                                "Yellow ring with a 'BALL' pointer = ball detected by the ball model in that exact frame; dashed yellow = estimated between detections.", "small"), blobs_ok)
+        s += ball_block(b.get("ball"))
         if q.get("issues"):
             s.append(KeepTogether([P("Video quality notes: " + " ".join(q["issues"]), "small")]))
         rows = [[Paragraph(h, ST["th"]) for h in ("Metric", "Value", "Unit", "Confidence", "Status")]]
@@ -205,7 +242,7 @@ async def get_or_build(rep, job, owner):
     blobs = {}
     for b in rep.get("biomech") or []:
         for p in b.get("phases", []):
-            for k in ("overlay_asset_id", "frame_asset_id"):
+            for k in ("overlay_asset_id", "frame_asset_id", "ball_overlay_asset_id"):
                 if p.get(k):
                     blobs[p[k]] = await _blob(p[k])
     pdf = await asyncio.to_thread(build, rep, job, owner, blobs)

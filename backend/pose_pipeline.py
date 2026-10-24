@@ -4,9 +4,10 @@ from pathlib import Path
 import numpy as np
 import cv2
 import requests
+import score_engine
 
 PIPELINE_VERSION = "ca-pose-v1"
-SCORE_VERSION = "ca-score-v1"
+SCORE_VERSION = score_engine.SCORE_VERSION
 KP_OK = 0.5
 KP_LOW = 0.3
 MODELS_DIR = Path(__file__).parent / "models"
@@ -25,15 +26,13 @@ METHODOLOGY = {
     "angle_method": "Joint angle at vertex B of keypoints A-B-C = arccos((BA·BC)/(|BA||BC|)), degrees, 0–180. Tilt angles are measured against image vertical/horizontal.",
     "normalisation": "Distances are divided by torso length (mid-shoulder to mid-hip, same frame) so they are scale-independent ('torso lengths').",
     "assumptions": ["Camera is static and roughly level.", "2D projection: angles are apparent angles and change with camera angle.",
-                    "Bat and ball are not tracked; impact and release timing are inferred from hand/wrist trajectory."],
+                    "The bat is not tracked; impact and release timing are inferred from hand/wrist trajectory. Ball tracking is a separate component and is not used for phase timing."],
     "thresholds": {"keypoint_measure": KP_OK, "keypoint_min": KP_LOW},
     "metric_status": {"measured": "all required joints ≥ 0.5 confidence on a detected phase",
                       "measured_estimated_phase": "joints ≥ 0.5 but the phase frame is estimated — counts at half weight",
                       "low_confidence": "a required joint between 0.3 and 0.5 — shown, excluded from score",
                       "not_measurable": "joint missing, phase not identified or camera angle unsuitable — no value shown"},
-    "scoring": "Each metric scores 100 inside its reference range, falling linearly to 0 at 'tolerance' beyond it. Overall = weighted mean of included metrics. "
-               "A score is shown only if ≥3 metrics are included, they cover ≥60% of total weight and ≥2 phases were detected (not estimated). "
-               "Reference ranges are configurable coaching heuristics, not validated population norms. Model confidence (keypoint confidence) is reported separately and is not a technique-quality signal.",
+    "scoring": score_engine.METHOD["normalisation"] + " " + score_engine.METHOD["gate"] + " " + score_engine.METHOD["status"],
 }
 
 METRICS = {
@@ -376,27 +375,12 @@ def metrics_bowling(ph, arm, angle_label):
 
 
 def score(kind, metrics, phases):
-    defs = {d["key"]: d for d in METRICS[kind]}
-    total = sum(d["weight"] for d in defs.values())
-    inc, wsum, acc = [], 0, 0
-    for m in metrics:
-        if m["status"] not in ("measured", "measured_estimated_phase"):
-            continue
-        d = defs[m["key"]]
-        w = d["weight"] * (0.5 if m["status"] == "measured_estimated_phase" else 1)
-        lo, hi = d["ideal"]
-        dist = 0 if lo <= m["value"] <= hi else min(abs(m["value"] - lo), abs(m["value"] - hi))
-        s = max(0.0, 100 * (1 - dist / d["tol"]))
-        m["metric_score"] = round(s)
-        inc.append(m["key"])
-        wsum += w
-        acc += w * s
     detected = sum(1 for p in phases if p["status"] == "detected")
-    coverage = wsum / total
-    ok = len(inc) >= 3 and coverage >= 0.6 and detected >= 2
-    return {"value": round(acc / wsum) if ok else None, "version": SCORE_VERSION, "included": inc, "coverage": round(coverage, 2), "detected_phases": detected,
-            "reason": None if ok else "Insufficient evidence to calculate a reliable score.",
-            "requirements": "≥3 included metrics, ≥60% weight coverage, ≥2 detected phases"}
+    sc = score_engine.compute(kind, metrics, detected)
+    ms = {m["key"]: m["score"] for m in sc["metric_scores"]}
+    for m in metrics:
+        m["metric_score"] = ms.get(m["key"])
+    return sc
 
 
 def quality(seq, meta, angle_label):
@@ -449,7 +433,7 @@ def analyse_video(path, kind, angle_label, meta):
     if not q["usable"]:
         return {**base, "status": "insufficient", "phases": [{"key": k, "name": n, "status": "unavailable", "note": "Player not reliably detected."} for k, n in PHASES[kind]],
                 "metrics": [{**{k: d[k] for k in ("key", "name", "unit", "phase")}, "value": None, "status": "not_measurable", "reason": "Player not reliably detected in this video."} for d in METRICS[kind]],
-                "score": {"value": None, "version": SCORE_VERSION, "reason": "Insufficient evidence to calculate a reliable score."}}, []
+                "score": score_engine.compute(kind, [], 0), "pose_track": []}, []
     arm = None
     if kind == "batting":
         ph = phases_batting(seq)
@@ -465,11 +449,14 @@ def analyse_video(path, kind, angle_label, meta):
             continue
         f = p["frame"]
         kconf = round(float(np.mean([s for _, _, s in f["kp"]])), 2)
-        phases.append({"key": k, "name": n, "status": p["status"], "note": p["note"], "t": f["t"], "keypoint_confidence": kconf,
+        phases.append({"key": k, "name": n, "status": p["status"], "note": p["note"], "t": f["t"], "idx": f["idx"], "keypoint_confidence": kconf,
                        "keypoints": [[round(x, 1), round(y, 1), round(s, 3)] for x, y, s in f["kp"]], "frame_size": [f["img"].shape[1], f["img"].shape[0]]})
         raw = cv2.imencode(".jpg", f["img"], [cv2.IMWRITE_JPEG_QUALITY, 85])[1].tobytes()
         ov = cv2.imencode(".jpg", overlay(f["img"], f["kp"]), [cv2.IMWRITE_JPEG_QUALITY, 85])[1].tobytes()
         imgs.append((k, raw, ov))
     sc = score(kind, mets, phases)
     status = "measured" if any(m["status"].startswith("measured") for m in mets) else "insufficient"
-    return {**base, "status": status, "bowling_arm": {"l_wri": "left", "r_wri": "right"}.get(arm), "phases": phases, "metrics": mets, "score": sc}, imgs
+    track = [{"t": f["t"], "idx": f["idx"], "kp": [[round(x / f["img"].shape[1], 4), round(y / f["img"].shape[0], 4), round(s, 2)] for x, y, s in f["kp"]]}
+             for f in seq if f.get("kp")]
+    return {**base, "status": status, "bowling_arm": {"l_wri": "left", "r_wri": "right"}.get(arm), "phases": phases, "metrics": mets, "score": sc,
+            "pose_track": track, "fps": round(fps, 3)}, imgs

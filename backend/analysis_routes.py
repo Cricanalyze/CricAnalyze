@@ -1,5 +1,9 @@
 import os, io, json, re, base64, asyncio, tempfile
+import cv2
+import numpy as np
 import pose_pipeline
+import ball_pipeline
+import score_engine
 import report_pdf as pdfgen
 from datetime import datetime
 from typing import List, Optional
@@ -142,14 +146,23 @@ async def delete_video(vid: str, request: Request, u=Depends(current_user)):
 
 
 @router.get("/media/{asset_id}")
-async def media(asset_id: str, exp: int = 0, sig: str = ""):
+async def media(asset_id: str, request: Request, exp: int = 0, sig: str = ""):
     if not verify_media_sig(asset_id, exp, sig):
         raise HTTPException(403, "This link has expired.")
     a = await db.video_assets.find_one({"id": asset_id, "is_deleted": False}) or await db.media_assets.find_one({"id": asset_id, "is_deleted": False})
     if not a:
         raise HTTPException(404, "Not found.")
     data, _ = await asyncio.to_thread(get_object, a["storage_path"])
-    return Response(data, media_type=a["content_type"], headers={"Cache-Control": "private, max-age=600", "X-Robots-Tag": "noindex"})
+    hdr = {"Cache-Control": "private, max-age=600", "X-Robots-Tag": "noindex", "Accept-Ranges": "bytes"}
+    m = re.match(r"bytes=(\d*)-(\d*)$", request.headers.get("range", ""))
+    if m and (m.group(1) or m.group(2)):
+        n = len(data)
+        start, end = (int(m.group(1)), int(m.group(2) or n - 1)) if m.group(1) else (max(0, n - int(m.group(2))), n - 1)
+        end = min(end, n - 1)
+        if start > end:
+            return Response(status_code=416, headers={"Content-Range": f"bytes */{n}"})
+        return Response(data[start:end + 1], status_code=206, media_type=a["content_type"], headers={**hdr, "Content-Range": f"bytes {start}-{end}/{n}"})
+    return Response(data, media_type=a["content_type"], headers=hdr)
 
 
 class AnalysisIn(BaseModel):
@@ -249,9 +262,11 @@ async def load_report_for(u, job):
         rep = filter_report(rep, job.get("report_level", "basic"))
         for b in rep.get("biomech") or []:
             for p in b.get("phases", []):
-                for k in ("frame_asset_id", "overlay_asset_id"):
+                for k in ("frame_asset_id", "overlay_asset_id", "ball_overlay_asset_id"):
                     if p.get(k):
                         p[k.replace("_asset_id", "_url")] = sign_media(p[k])
+            if b.get("video_id"):
+                b["video_url"] = sign_media(b["video_id"])
         for f in rep.get("frames", []):
             f["url"] = sign_media(f["asset_id"])
     return rep
@@ -298,6 +313,23 @@ async def get_analysis(job_id: str, u=Depends(current_user)):
     if job["report"] and u["id"] == job["user_id"] and not job.get("reviewed_at"):
         await db.analysis_jobs.update_one({"id": job_id}, {"$set": {"reviewed_at": now()}})
     return job
+
+
+@router.get("/analyses/{job_id}/score-check")
+async def score_check(job_id: str, u=Depends(current_user)):
+    job = await get_job_authorized(u, job_id)
+    rep = await db.analysis_reports.find_one({"job_id": job["id"]}, {"_id": 0, "biomech": 1, "analysis_type": 1})
+    out = []
+    for b in (rep or {}).get("biomech") or []:
+        sc = b.get("score") or {}
+        if sc.get("version") != score_engine.SCORE_VERSION:
+            out.append({"video_id": b.get("video_id"), "version": sc.get("version"), "reproducible": None, "note": "Saved with an older scoring method."})
+            continue
+        r = score_engine.recompute(rep["analysis_type"], sc)
+        same = r["value"] == sc["value"] and [c["score"] for c in r["components"]] == [c["score"] for c in sc["components"]]
+        out.append({"video_id": b.get("video_id"), "version": sc["version"], "rubric_hash_saved": sc.get("rubric_hash"), "rubric_hash_current": r["rubric_hash"],
+                    "saved": sc["value"], "recomputed": r["value"], "reproducible": same})
+    return {"results": out}
 
 
 @router.post("/analyses/{job_id}/retry")
@@ -460,6 +492,14 @@ async def process_job(job):
                 log.warning(f"pose pipeline failed job={job['id']} err={sanitize_error(e)}")
                 msg = str(e) if isinstance(e, pose_pipeline.PoseUnavailable) else "Pose-estimation service was unavailable or timed out."
                 bio, pimgs = {"status": "unavailable", "error": msg, "provider": pose_pipeline.provider(), "pipeline_version": pose_pipeline.PIPELINE_VERSION}, []
+            await db.analysis_jobs.update_one({"id": job["id"]}, {"$set": {"progress": 40, "stage": "ball_tracking"}})
+            tc = next((p["t"] for p in bio.get("phases", []) if p["key"] in ("downswing", "release") and p.get("t") is not None), None)
+            try:
+                bio["ball"] = await asyncio.wait_for(asyncio.to_thread(ball_pipeline.analyse, tmp.name, v["meta"], bio.get("pose_track"), tc), 360)
+            except Exception as e:
+                log.warning(f"ball pipeline failed job={job['id']} err={sanitize_error(e)}")
+                bio["ball"] = {"status": "unavailable", "version": ball_pipeline.BALL_VERSION, "provider": ball_pipeline.provider(),
+                               "message": ball_pipeline.NOT_DETECTED, "error": str(e) if isinstance(e, ball_pipeline.BallUnavailable) else "Ball tracking failed or timed out."}
         if not fr:
             raise PermanentError("We couldn't extract frames from the video.")
         frames_by_video.append((v, fr))
@@ -482,7 +522,14 @@ async def process_job(job):
     for b, pimgs in zip(biomechs, phase_imgs):
         for key, raw, ov in pimgs:
             ph = next(p for p in b["phases"] if p["key"] == key)
-            for field, blob in (("frame_asset_id", raw), ("overlay_asset_id", ov)):
+            blobs = [("frame_asset_id", raw), ("overlay_asset_id", ov)]
+            d, trail = ball_pipeline.phase_marker(b.get("ball"), ph.get("idx"))
+            if d:
+                im = cv2.imdecode(np.frombuffer(ov, np.uint8), cv2.IMREAD_COLOR)
+                bim = ball_pipeline.draw_marker(im, d, im.shape[1] / b["ball"]["frame_size"][0], trail)
+                blobs.append(("ball_overlay_asset_id", cv2.imencode(".jpg", bim, [cv2.IMWRITE_JPEG_QUALITY, 85])[1].tobytes()))
+                ph["ball"] = {k: d[k] for k in ("t", "conf", "x", "y", "cx", "cy")}
+            for field, blob in blobs:
                 aid = uid()
                 res = await asyncio.to_thread(put_object, f"{BUCKET_PREFIX}/phases/{job['user_id']}/{aid}.jpg", blob, "image/jpeg")
                 await db.media_assets.insert_one({"id": aid, "user_id": job["user_id"], "kind": "phase_frame", "storage_path": res["path"],
