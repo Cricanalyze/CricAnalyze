@@ -1,0 +1,83 @@
+{
+  "project_name": "CricAnalyze",
+  "company_name": "Buddy Innovations and Technologies Pvt Ltd",
+  "domain": "cricanalyze.in",
+  "theme": {
+    "mode": "dark",
+    "primary_archetype": "THE PERFORMANCE PRO / CRICKET TECH",
+    "color_palette": {
+      "navy_dark": "#0B132B",
+      "navy_card": "#1C2541",
+      "navy_surface": "#111B34",
+      "teal_primary": "#00B4D8",
+      "teal_hover": "#0096C7",
+      "emerald_accent": "#10B981",
+      "emerald_glow": "#059669",
+      "gold_accent": "#F59E0B",
+      "slate_muted": "#94A3B8",
+      "border_subtle": "rgba(255, 255, 255, 0.12)",
+      "text_main": "#F8FAFC",
+      "text_subdued": "#CBD5E1",
+      "background": "#070D1E"
+    },
+    "tailwind_color_tokens": {
+      "bg_dark": "bg-[#070D1E]",
+      "bg_card": "bg-[#1C2541]/80 backdrop-blur-md",
+      "bg_surface": "bg-[#111B34]",
+      "text_primary": "text-slate-50",
+      "text_secondary": "text-slate-300",
+      "text_accent_teal": "text-[#00B4D8]",
+      "text_accent_emerald": "text-[#10B981]",
+      "border_color": "border-slate-800"
+    }
+  },
+  "typography": {
+    "google_fonts_url": "https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap",
+    "font_family_headings": "Outfit, sans-serif",
+    "font_family_body": "'Plus Jakarta Sans', sans-serif",
+    "font_family_mono": "'JetBrains Mono', monospace",
+    "scale": {
+      "hero_h1": "text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight",
+      "section_h2": "text-2xl sm:text-3xl lg:text-4xl font-bold tracking-tight",
+      "card_h3": "text-xl sm:text-2xl font-semibold",
+      "body_text": "text-base leading-relaxed text-slate-300",
+      "caption": "text-xs font-mono uppercase tracking-widest text-teal-400"
+    }
+  },
+  "visual_enhancers": {
+    "glassmorphism": "backdrop-blur-xl bg-[#1C2541]/70 border border-white/10 shadow-xl",
+    "neon_borders": "border border-[#00B4D8]/30 shadow-[0_0_15px_rgba(0,180,216,0.15)]",
+    "success_glow": "border border-[#10B981]/40 shadow-[0_0_15px_rgba(16,185,129,0.2)]",
+    "grid_background": "bg-[radial-gradient(#1E293B_1px,transparent_1px)] [background-size:16px_16px]"
+  },
+  "layout_patterns": {
+    "marketing": "Mode A Tetris Grid with generous padding (py-16 md:py-24), sticky header with blur, dynamic CTA sections, and full footer",
+    "dashboard": "Mode B High Density Grid with fixed or collapsible sidebar navigation, top header stat bar, tabbed sub-views, cardless and bordered data containers",
+    "video_analysis": "Split view: 60% high-frame-rate video player with skeleton pose overlay, speed gauge, angle controls; 40% AI diagnostic report card with tabs for Observations, Drills, and Shot/Delivery metrics"
+  },
+  "key_components": {
+    "marketing_page": "Hero with real cricket action hero image, AI feature badges, interactive report preview teaser, clear pricing in INR (Razorpay credits format), real player/coach workflow steps, blog listing, and company disclosure (Buddy Innovations and Technologies Pvt Ltd)",
+    "video_upload": "Drag-and-drop zone with drag active states, video preview thumbnail, progress percentage bar, metadata inputs (batting/bowling, pitch type, player role), and analysis trigger button",
+    "analysis_report": "Confidence score meter, frame breakdown slider, AI observations bulleted list with severity tags (High, Medium, Low), recommended drills with step-by-step videos/text, export PDF button, and MUST include explicit label 'EXAMPLE REPORT' when displaying demo data",
+    "ai_coach_chat": "Chat interface with persistent sidebar history, quick prompt recommendations ('Analyze my backlift', 'In-swing bowling drills'), real-time streaming response effect, and code/bullet points formatting",
+    "training_planner": "Interactive checklist grouped by day/week, target drills, completion progress tracker, and streak counters",
+    "academy_workspace": "Data table with player roster, total uploaded videos, AI improvement index, drill assignment actions, and filter by age group/role",
+    "admin_control_center": "Sidebar tabs for Users, Credit Balance & Razorpay Transactions, AI Processing Queue, System Logs, SEO Metadata Settings, and CMS Blog Manager",
+    "auth_forms": "Unified glassmorphic modal or page for Login/Signup/Verify OTP with 6-digit OTP input boxes, auto-focus transition, and Resend Timer"
+  },
+  "image_urls": {
+    "hero_cricket_action": "https://images.unsplash.com/photo-1593341646782-e0b495cff86d?crop=entropy&cs=srgb&fm=jpg&q=85",
+    "batting_practice": "https://images.pexels.com/photos/37144640/pexels-photo-37144640.jpeg?auto=compress&cs=tinysrgb&w=800",
+    "bowling_training": "https://images.unsplash.com/photo-1595210382266-2d0077c1f541?crop=entropy&cs=srgb&fm=jpg&q=85",
+    "cricket_nets": "https://images.pexels.com/photos/9559761/pexels-photo-9559761.jpeg?auto=compress&cs=tinysrgb&w=800",
+    "cricket_match": "https://images.unsplash.com/photo-1599982946086-eb42d9e14eb8?crop=entropy&cs=srgb&fm=jpg&q=85"
+  },
+  "instructions_to_main_agent": {
+    "file_type_extension": "All React components must be written in JavaScript (.js or .jsx files)",
+    "testing_requirement": "EVERY interactive element (buttons, links, form fields, tab buttons, modal triggers, card actions) MUST include a data-testid attribute in kebab-case format (e.g. data-testid=\"upload-video-button\", data-testid=\"pricing-plan-pro-buy\").",
+    "fake_data_policy": "NO fake testimonials or misleading statistical claims. Any sample reports displayed on public or demo pages MUST be visibly labeled with a clear badge reading 'EXAMPLE REPORT'.",
+    "credit_payment_system": "Pricing must explicitly showcase INR pricing models integrated with Razorpay credit top-ups (e.g., ₹499 for 10 Analysis Credits, ₹1,999 for 50 Credits).",
+    "header_navigation": "Navbar must never be 100% transparent when scrolled. Use glassmorphic dark background (bg-[#0B132B]/80 backdrop-blur-md) with visible nav links and high-contrast CTA button.",
+    "hover_contrast_rule": "Every hover state must explicitly define text color (e.g., hover:bg-teal-500 hover:text-slate-950) to ensure high contrast APCA compliance."
+  }
+}
