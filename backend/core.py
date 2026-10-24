@@ -77,7 +77,7 @@ async def audit(actor_id, action, target=None, meta=None, request: Request = Non
 DEFAULT_SETTINGS = {
     "flags": {"ai_coach": True, "ask_assistant": True, "academy": True, "challenges": True, "passport": True,
               "leaderboard": False, "otp_login": True, "blog_ai": True, "require_otp_every_login": False},
-    "limits": {"max_concurrent_jobs": 2, "job_timeout_s": 240, "max_retries": 2, "frames_per_video": 6,
+    "limits": {"max_concurrent_jobs": 2, "job_timeout_s": 600, "max_retries": 2, "frames_per_video": 6,
                "est_cost_per_analysis_inr": 6, "monthly_cost_alert_inr": 5000, "retention_days": 365},
 }
 

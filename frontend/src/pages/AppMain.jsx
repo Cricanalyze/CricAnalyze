@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { api, errMsg, fmtDate, media, download } from "@/lib/api";
 import { useAuth, isStaff } from "@/context/AuthContext";
 import { PageHeader, Empty, Card, Badge, statusTone, Seo } from "@/components/Common";
+import { Biomech } from "@/components/Biomech";
 
 export const Dashboard = () => {
   const { user, ent } = useAuth();
@@ -72,6 +73,7 @@ export const Upload = () => {
   const [items, setItems] = useState([]);
   const [consent, setConsent] = useState(false);
   const [notes, setNotes] = useState("");
+  const [shot, setShot] = useState("");
   const [busy, setBusy] = useState(false);
   const [drag, setDrag] = useState(false);
   const key = useRef(crypto.randomUUID());
@@ -97,7 +99,7 @@ export const Upload = () => {
         const { data } = await api.post("/videos", fd, { onUploadProgress: (e) => setItems((s) => s.map((x, j) => j === i ? { ...x, progress: Math.round((e.loaded / (e.total || 1)) * 100) } : x)) });
         ids.push(data.id);
       }
-      const { data: job } = await api.post("/analyses", { analysis_type: type, video_ids: ids, consent, idempotency_key: key.current, notes: notes || null });
+      const { data: job } = await api.post("/analyses", { analysis_type: type, video_ids: ids, consent, idempotency_key: key.current, notes: notes || null, shot_type: shot || null });
       toast.success("Upload complete. Analysis queued.");
       nav(`/app/analyses/${job.id}`);
     } catch (e) {
@@ -134,6 +136,7 @@ export const Upload = () => {
           <Card><h3 className="font-semibold mb-2">Camera placement tips</h3><ul className="text-sm text-slate-400 space-y-1.5 list-disc pl-5">
             <li>Side-on: camera level with the hips, 8–12 m away, full body in frame.</li><li>Front-on: behind the bowler's arm / straight down the pitch.</li>
             <li>Steady phone, good light, 30fps or higher, 480p+.</li><li>For multi-angle bowling, record the same delivery or similar deliveries per angle.</li></ul></Card>
+          <Input placeholder={type === "batting" ? "Shot type (e.g. front-foot drive, defence, pull)" : "Delivery type (e.g. pace, off-spin)"} maxLength={60} value={shot} onChange={(e) => setShot(e.target.value)} data-testid="shot-type-input" />
           <Textarea placeholder="Optional note for the analyst (e.g. 'working on my cover drive')" maxLength={300} value={notes} onChange={(e) => setNotes(e.target.value)} data-testid="analysis-notes" />
           <label className="flex gap-2 items-start text-sm"><Checkbox checked={consent} onCheckedChange={(v) => setConsent(!!v)} data-testid="consent-checkbox" />
             <span>I own this video or have permission from everyone in it, and I consent to it being processed by a hosted AI provider to create my report.</span></label>
@@ -245,6 +248,7 @@ export const Report = () => {
       {!r && <Card className="mb-6" data-testid="job-status-card"><div className="flex items-center gap-3 mb-3"><Badge tone={statusTone(job.status)}>{job.status}</Badge><span className="text-sm text-slate-400">{job.stage?.replace(/_/g, " ")}</span></div>
         {job.status === "failed" ? <div><p className="text-red-300 flex gap-2 items-start"><AlertTriangle size={18} />{job.failure_reason}</p><p className="text-xs text-slate-500 mt-1">{job.credit_state === "refunded" ? "Your credit was refunded." : ""}</p><Button className="mt-4" onClick={retry} data-testid="retry-btn"><RefreshCw size={16} className="mr-1" />Retry</Button></div>
           : <><Progress value={job.progress} /><p className="text-xs text-slate-500 mt-2">Usually 1–3 minutes. You can leave this page — we'll email you when it's ready.{job.last_error ? ` Retrying after: ${job.last_error}` : ""}</p></>}</Card>}
+      {r && <div className="mb-6"><Biomech r={r} /></div>}
       {r && <div className="grid lg:grid-cols-5 gap-6" data-testid="report-view">
         <div className="lg:col-span-3 space-y-5">
           {videoUrl && <video src={videoUrl} controls className="w-full rounded-xl bg-black aspect-video" data-testid="report-video" />}

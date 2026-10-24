@@ -3,11 +3,9 @@ import { Helmet } from "react-helmet-async";
 import { useEffect, useState } from "react";
 import { api, SITE } from "@/lib/api";
 
-// Placeholder wordmark until the official logo file is supplied.
 export const Logo = ({ className = "" }) => (
-  <Link to="/" className={`flex items-center gap-2 font-display font-extrabold text-xl tracking-tight ${className}`} data-testid="brand-logo" aria-label="CricAnalyze home">
-    <span className="grid place-items-center w-8 h-8 rounded-md bg-[#10B981] text-[#0B132B] text-sm font-black">CA</span>
-    <span>Cric<span className="text-[#10B981]">Analyze</span></span>
+  <Link to="/" className={`inline-flex items-center rounded-lg bg-white px-2 py-1 w-fit ${className}`} data-testid="brand-logo" aria-label="CricAnalyze home">
+    <img src="/logo.png" alt="CricAnalyze - Analyze, Improve, Play Better" className="h-10 w-auto" />
   </Link>
 );
 

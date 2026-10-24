@@ -1,4 +1,6 @@
 import os, io, json, re, base64, asyncio, tempfile
+import pose_pipeline
+import report_pdf as pdfgen
 from datetime import datetime
 from typing import List, Optional
 from fastapi import APIRouter, Request, Response, HTTPException, Depends, UploadFile, File, Form, Query
@@ -156,6 +158,7 @@ class AnalysisIn(BaseModel):
     consent: bool
     idempotency_key: str = Field(min_length=8, max_length=64)
     notes: Optional[str] = Field(None, max_length=300)
+    shot_type: Optional[str] = Field(None, max_length=60)
 
 
 async def reserve_credit(user_id, analysis_type, ref):
@@ -210,7 +213,7 @@ async def create_analysis(body: AnalysisIn, request: Request, u=Depends(current_
     level = (sub["plan_snapshot"].get("report_level") if sub else "advanced") or "basic"
     job = {"id": job_id, "user_id": u["id"], "analysis_type": body.analysis_type, "video_ids": [v["id"] for v in vids],
            "idempotency_key": body.idempotency_key, "status": "queued", "attempts": 0, "progress": 0, "report_level": level,
-           "subscription_id": sub["id"] if sub else None, "credit_state": "reserved" if sub else "none", "notes": body.notes,
+           "subscription_id": sub["id"] if sub else None, "credit_state": "reserved" if sub else "none", "notes": body.notes, "shot_type": body.shot_type,
            "consent_at": now(), "created_at": now(), "updated_at": now(), "next_run_at": now()}
     try:
         await db.analysis_jobs.insert_one(job)
@@ -233,6 +236,9 @@ def filter_report(rep, level):
         rep["locked"] = ["full observations", "all drills", "practice plan"]
     if lvl < 2:
         rep["practice_plan"] = None
+        for b in rep.get("biomech") or []:
+            if lvl < 1:
+                b["metrics"] = [{**m, "value": None, "status": "locked", "reason": "Upgrade to view measured metrics."} for m in b.get("metrics", [])]
         rep.setdefault("locked", []).append("practice plan")
     return rep
 
@@ -241,6 +247,11 @@ async def load_report_for(u, job):
     rep = await db.analysis_reports.find_one({"job_id": job["id"]}, {"_id": 0})
     if rep:
         rep = filter_report(rep, job.get("report_level", "basic"))
+        for b in rep.get("biomech") or []:
+            for p in b.get("phases", []):
+                for k in ("frame_asset_id", "overlay_asset_id"):
+                    if p.get(k):
+                        p[k.replace("_asset_id", "_url")] = sign_media(p[k])
         for f in rep.get("frames", []):
             f["url"] = sign_media(f["asset_id"])
     return rep
@@ -313,48 +324,8 @@ async def report_pdf(job_id: str, u=Depends(current_user)):
     if not rep:
         raise HTTPException(409, "The report isn't ready yet.")
     owner = await db.users.find_one({"id": job["user_id"]})
-    pdf = await asyncio.to_thread(build_pdf, rep, job, owner)
+    pdf = await pdfgen.get_or_build(rep, job, owner)
     return Response(pdf, media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename=cricanalyze-{job_id[:8]}.pdf"})
-
-
-def build_pdf(rep, job, owner):
-    from reportlab.lib.pagesizes import A4
-    from reportlab.lib.styles import getSampleStyleSheet
-    from reportlab.lib import colors
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
-    from xml.sax.saxutils import escape as e
-    buf = io.BytesIO()
-    ss = getSampleStyleSheet()
-    doc = SimpleDocTemplate(buf, pagesize=A4, title="CricAnalyze Report")
-    s = [Paragraph("<font color='#0B132B'>Cric</font><font color='#10B981'>Analyze</font> — Technique Report", ss["Title"]),
-         Paragraph(f"Player: {e(owner.get('full_name', ''))} · {job['analysis_type'].title()} · {job['created_at'].strftime('%d %b %Y')}", ss["Normal"]),
-         Paragraph(f"Model: {e(rep.get('model', ''))} · Report level: {job.get('report_level')} · Overall confidence: {e(str(rep.get('overall_confidence', 'n/a')))}", ss["Normal"]),
-         Spacer(1, 10), Paragraph("Summary", ss["Heading2"]), Paragraph(e(rep.get("summary", "")), ss["Normal"])]
-    for title, key in (("Strengths", "strengths"), ("Areas to improve", "improvements")):
-        s.append(Paragraph(title, ss["Heading2"]))
-        for x in rep.get(key, []):
-            s.append(Paragraph("• " + e(str(x)), ss["Normal"]))
-    s.append(Paragraph("Observations", ss["Heading2"]))
-    rows = [["Area", "Observation", "Time", "Type", "Conf."]]
-    for o in rep.get("observations", []):
-        rows.append([Paragraph(e(o.get("area", "")), ss["Normal"]), Paragraph(e(o.get("observation", "")), ss["Normal"]),
-                     f"{o.get('timestamp_s', '-')}s", o.get("evidence_type", ""), o.get("confidence", "")])
-    t = Table(rows, colWidths=[70, 250, 45, 70, 45])
-    t.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0B132B")), ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-                           ("GRID", (0, 0), (-1, -1), 0.3, colors.grey), ("VALIGN", (0, 0), (-1, -1), "TOP")]))
-    s.append(t)
-    s.append(Paragraph("Recommended drills", ss["Heading2"]))
-    for d in rep.get("drills", []):
-        s.append(Paragraph(f"<b>{e(d.get('name', ''))}</b> — {e(d.get('how_to', ''))} ({e(d.get('sets_reps', ''))})", ss["Normal"]))
-    if rep.get("practice_plan"):
-        s.append(Paragraph("Practice plan", ss["Heading2"]))
-        for p in rep["practice_plan"]:
-            s.append(Paragraph(f"<b>{e(p.get('day', ''))}</b>: {e(p.get('focus', ''))}", ss["Normal"]))
-    s.append(Spacer(1, 12))
-    s.append(Paragraph("Limitations: " + e("; ".join(rep.get("limitations", []))), ss["Italic"]))
-    s.append(Paragraph("AI-assisted coaching observations from sampled video frames. Not a medical assessment or official selection credential.", ss["Italic"]))
-    doc.build(s)
-    return buf.getvalue()
 
 
 # ---------- timeline & comparison ----------
@@ -408,7 +379,19 @@ Separate 'observed' (directly visible) from 'inferred' (coaching interpretation)
 Return ONLY valid JSON, no markdown."""
 
 
-def build_prompt(kind, frames_by_video, notes):
+def biomech_brief(biomechs):
+    out = []
+    for b in biomechs:
+        if b.get("status") not in ("measured", "insufficient"):
+            out.append(f"angle={b.get('angle')}: pose pipeline unavailable ({b.get('error', '')}).")
+            continue
+        ph = ", ".join(f"{p['name']}={p['status']}" + (f"@{p['t']}s" if p.get('t') is not None else "") for p in b["phases"])
+        ms = "; ".join(f"{m['name']}: {m['value']} {m['unit']} ({m['status']})" if m.get("value") is not None else f"{m['name']}: not measurable" for m in b["metrics"])
+        out.append(f"angle={b['angle']}: phases [{ph}]. Metrics [{ms}]. Quality issues: {b['quality']['issues'] or 'none'}.")
+    return "\n".join(out)
+
+
+def build_prompt(kind, frames_by_video, notes, biomechs=None, shot_type=None):
     areas = BAT_AREAS if kind == "batting" else BOWL_AREAS
     lines = []
     i = 0
@@ -416,7 +399,9 @@ def build_prompt(kind, frames_by_video, notes):
         for f in frames:
             lines.append(f"Image {i}: angle={v['angle']}, t={f['t']}s")
             i += 1
-    return f"""Analyse this {kind} technique. {'Player note: ' + notes if notes else ''}
+    bm = biomech_brief(biomechs or [])
+    return f"""Analyse this {kind} technique. {'Shot/delivery type: ' + shot_type + '.' if shot_type else ''} {'Player note: ' + notes if notes else ''}
+{'POSE-MODEL MEASUREMENTS (computed from detected keypoints; treat as the only numeric evidence, never contradict or add numbers):' + chr(10) + bm if bm else ''}
 Images in order:\n""" + "\n".join(lines) + f"""
 Return JSON with keys:
 "is_cricket_{kind}": bool (false if the video does not show cricket {kind}),
@@ -428,7 +413,8 @@ Return JSON with keys:
 "practice_plan": list of {{"day","focus","duration_min"}} for one week,
 "per_angle": list of {{"angle","visibility":"good"|"partial"|"poor","note"}},
 "limitations": list of strings about what could not be reliably assessed,
-"overall_confidence": "low"|"medium"|"high" """
+"overall_confidence": "low"|"medium"|"high",
+"coach_summary": string (4-6 sentences for the player; reference the measured metrics and phases above by name and value where available, say plainly which could not be measured) """
 
 
 def parse_json(text):
@@ -442,14 +428,14 @@ class PermanentError(Exception):
     pass
 
 
-async def run_provider(job, vids, frames_by_video):
+async def run_provider(job, vids, frames_by_video, biomechs=None):
     provider = os.environ.get("AI_INFERENCE_PROVIDER", "vision_llm")
     if provider != "vision_llm":
         raise PermanentError(f"AI provider '{provider}' is not configured on this server.")
     if not LLM_KEY:
         raise PermanentError("AI analysis provider is not configured. An administrator must add the AI key.")
     imgs = [base64.b64encode(f["jpg"]).decode() for _, fr in frames_by_video for f in fr]
-    text = await llm_text(SYSTEM, build_prompt(job["analysis_type"], frames_by_video, job.get("notes")), f"job-{job['id']}-{job['attempts']}", imgs)
+    text = await llm_text(SYSTEM, build_prompt(job["analysis_type"], frames_by_video, job.get("notes"), biomechs, job.get("shot_type")), f"job-{job['id']}-{job['attempts']}", imgs)
     return parse_json(text)
 
 
@@ -460,18 +446,27 @@ async def process_job(job):
     if len(vids) != len(job["video_ids"]):
         raise PermanentError("A video for this analysis was deleted before processing.")
     per = max(3, lim["frames_per_video"] if len(vids) == 1 else lim["frames_per_video"] // 2 + 1)
-    frames_by_video = []
+    frames_by_video, biomechs, phase_imgs = [], [], []
     for v in vids:
         data, _ = await asyncio.to_thread(get_object, v["storage_path"])
         with tempfile.NamedTemporaryFile(suffix=".vid") as tmp:
             tmp.write(data)
             tmp.flush()
             fr = await asyncio.to_thread(extract_frames, tmp.name, per)
+            await db.analysis_jobs.update_one({"id": job["id"]}, {"$set": {"progress": 25, "stage": "pose_estimation"}})
+            try:
+                bio, pimgs = await asyncio.wait_for(asyncio.to_thread(pose_pipeline.analyse_video, tmp.name, job["analysis_type"], v["angle"], v["meta"]), 300)
+            except Exception as e:
+                log.warning(f"pose pipeline failed job={job['id']} err={sanitize_error(e)}")
+                msg = str(e) if isinstance(e, pose_pipeline.PoseUnavailable) else "Pose-estimation service was unavailable or timed out."
+                bio, pimgs = {"status": "unavailable", "error": msg, "provider": pose_pipeline.provider(), "pipeline_version": pose_pipeline.PIPELINE_VERSION}, []
         if not fr:
             raise PermanentError("We couldn't extract frames from the video.")
         frames_by_video.append((v, fr))
-    await db.analysis_jobs.update_one({"id": job["id"]}, {"$set": {"progress": 40, "stage": "ai_analysis"}})
-    result = await run_provider(job, vids, frames_by_video)
+        biomechs.append({"video_id": v["id"], "angle": v["angle"], **bio})
+        phase_imgs.append(pimgs)
+    await db.analysis_jobs.update_one({"id": job["id"]}, {"$set": {"progress": 55, "stage": "ai_analysis"}})
+    result = await run_provider(job, vids, frames_by_video, biomechs)
     if result.get(f"is_cricket_{job['analysis_type']}") is False:
         raise PermanentError(f"The video doesn't appear to show cricket {job['analysis_type']}. Your credit has been refunded.")
     frames = []
@@ -484,10 +479,22 @@ async def process_job(job):
                                               "content_type": "image/jpeg", "is_deleted": False, "created_at": now()})
             frames.append({"index": idx, "asset_id": aid, "t": f["t"], "angle": v["angle"], "video_id": v["id"]})
             idx += 1
+    for b, pimgs in zip(biomechs, phase_imgs):
+        for key, raw, ov in pimgs:
+            ph = next(p for p in b["phases"] if p["key"] == key)
+            for field, blob in (("frame_asset_id", raw), ("overlay_asset_id", ov)):
+                aid = uid()
+                res = await asyncio.to_thread(put_object, f"{BUCKET_PREFIX}/phases/{job['user_id']}/{aid}.jpg", blob, "image/jpeg")
+                await db.media_assets.insert_one({"id": aid, "user_id": job["user_id"], "kind": "phase_frame", "storage_path": res["path"],
+                                                  "content_type": "image/jpeg", "is_deleted": False, "created_at": now()})
+                ph[field] = aid
+    measured = any(b.get("status") == "measured" for b in biomechs)
     rep = {"id": uid(), "job_id": job["id"], "user_id": job["user_id"], "analysis_type": job["analysis_type"], "created_at": now(),
-           "model": f"anthropic/{AI_MODEL} (vision, sampled frames)", "provider": "vision_llm", "frames": frames,
+           "model": f"anthropic/{AI_MODEL} (vision, sampled frames)", "provider": "vision_llm", "frames": frames, "report_version": 2,
+           "shot_type": job.get("shot_type"), "biomech": biomechs, "assessment_type": "measured_biomechanical" if measured else "vision_only",
+           "coach_summary": result.get("coach_summary"),
            "video_meta": [{"video_id": v["id"], "angle": v["angle"], **v["meta"]} for v in vids],
-           "measured": {"note": "Duration, FPS and resolution are measured from the file. Pose keypoints, joint angles and speeds are not measured by the current provider."},
+           "measured": {"note": "Duration, FPS and resolution are measured from the file. Joint angles come only from the pose model (2D image plane). Bat speed, ball speed and forces are not measured." if measured else "Duration, FPS and resolution are measured from the file. No pose measurements were available for this report."},
            **{k: result.get(k) for k in ("summary", "scores", "observations", "strengths", "improvements", "drills", "practice_plan",
                                          "per_angle", "limitations", "overall_confidence")}}
     await db.analysis_reports.insert_one(rep)

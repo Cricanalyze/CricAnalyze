@@ -23,10 +23,17 @@ Player, parent/guardian, coach, academy admin, content editor, platform admin, s
 - Admin: overview analytics & cost alert, users/roles/suspend, plans, coupons, payments/ledger, jobs, integrations, flags/limits, SEO checks & page meta, academies, support, audit
 - Tested: iteration_1 (backend 14/17 → 3 security findings fixed: pre-account hijack, XFF spoofing, date 500)
 
+## Biomechanical report upgrade (2026-10-24)
+User request: professional biomechanical assessment PDF inspired by the attached reference (front_foot_defense_report.pdf), CricAnalyze branding/logo, real CV measurements only, no fabricated metrics, evidence-linked phase frames, batting/bowling templates, score only via a documented method, secure entitled export. Choices: server pose now, RunPod later; official logo + reference attached.
+- pose_pipeline.py: RTMPose-m + YOLOX via rtmlib/onnxruntime on CPU (MediaPipe unusable: libGLESv2 missing); phase extraction (detected/estimated/unavailable); geometry metrics with confidence gating; shoulder-width foreshortening guard; occlusion vs distance quality messages; score ca-score-v1 withheld unless >=3 metrics, >=60% weight coverage, >=2 detected phases
+- report_pdf.py v2.3: official logo header, reference section order (title/meta → overall score → kinematic phase grid → coach summary → strengths/improve → metrics breakdown), evidence table, drills, plan, methodology, filming guidance, disclaimer, footer with report ID/page; tighter continuation pages; old cached PDFs marked deleted on rebuild
+- Official logo in site header/sidebar/auth (frontend/public/logo.png)
+- Tested: iteration_2: clear batting measured (score 98), distant/low-res/legs-occluded → score withheld, bowling template runs, PDF auth owner 200 / other 404 / anon 401, signed media URLs 403 on tamper
+
 ## Backlog
-- P0: owner uploads official logo; set RAZORPAY_WEBHOOK_SECRET; set DEV_EMAIL_OUTBOX=false for production; legal review of policy drafts
-- P1: GPU pose-estimation adapter (RunPod) for keypoints/angles; H.264 transcoding for non-browser codecs; recurring Razorpay Subscriptions auto-renewal; parent-to-child account linking; blog tables & video embeds; GA/GSC once IDs provided
+- P0: set RAZORPAY_WEBHOOK_SECRET; set DEV_EMAIL_OUTBOX=false for production; legal review of policy drafts
+- P1: RunPod GPU pose adapter; discipline check (batting clip submitted as bowling); calibrate ideal ranges with real coach-labelled clips (score 98 on an amateur clip suggests ranges are wide); test with a real bowling clip; H.264 transcoding for non-browser codecs; recurring Razorpay Subscriptions auto-renewal; parent-to-child account linking; blog tables & video embeds; GA/GSC once IDs provided
 - P2: server-side rendering/prerender for SEO, monitoring/error tracking, retention auto-cleanup job
 
 ## Next tasks
-Logo swap, webhook secret, production publish on cricanalyze.in.
+Webhook secret, real bowling clip validation, production publish on cricanalyze.in.

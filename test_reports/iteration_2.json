@@ -1,0 +1,49 @@
+{
+  "summary": "Tested the biomechanical pose pipeline, the PDF report and the frontend Biomech report. Pose acceptance on /root/testvids: bat.mp4 batting gave usable=true, all 5 phases (4 detected, impact estimated), 4 metrics measured and score 98 (coverage 0.62). distant.mp4 gave usable=false (player 8% of frame height), all phases unavailable, all metrics not_measurable, score None with the insufficient-evidence reason. lowres.mp4 (320x180) gave usable=true with a low-resolution warning; hands_height was low_confidence, coverage 0.43, so score None with the reason. occluded.mp4 gave usable=true and score 97: its grey box does NOT cover the batter, so this fixture does not test occlusion. I made a real occluded clip (legs covered, /tmp/occluded_legs.mp4): key-joint confidence 0.43, 3 metrics not_measurable, 1 low_confidence, 0 included, score None with the reason, status insufficient. bat.mp4 run as bowling: no crash, bowling phases (run_up, gather, back_foot_contact, front_foot_contact, release) and bowling metric names, 1 detected phase, so score withheld. No metric with status not_measurable ever had a value. PDF security (pytest): anonymous 401; super_admin owner 200 application/pdf with attachment and %PDF header; another player 404 on /pdf and on /analyses/{id}; bogus id 404. Real player-owner E2E (signup, OTP, admin grant of the Batting plan, upload bat.mp4, job completed with measured_biomechanical, score 98): owner PDF 200, intruder 404, anonymous 401. Frame/overlay media use 15-minute HMAC-signed URLs; a tampered sig, an extended exp or no sig all return 403. PDF render (pymupdf): the logo is in every page header with correct aspect (600x400 drawn at 1.5); the OVERALL SCORE label and the 98 / 100 number are not clipped; the insufficient-evidence box renders when there is no score; phase images keep their source aspect (1.778 landscape, 0.821 portrait); a 45-row synthetic observations table split over 3 pages with the header repeated; the footer shows the report ID and 'v2.2 - Page N' on every page; the vision-only variant renders with the insufficient box plus 'No pose measurements were available.' Frontend: brand-logo loads (naturalWidth 600) on the landing page and the app shell at 1920 and 390 widths. Report page: 5 phases, 5 metrics, score 98 or the insufficient-evidence message, overlay toggle switches images, the PDF button downloads cricanalyze-<id>.pdf, and there is no horizontal overflow at 390px.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "pose_pipeline.metrics_batting.shoulders (shoulder_alignment)", "issue": "No foreshortening guard. On the real front-on report (job c9aa67da) it reported 63.4 deg as 'Measured (estimated phase)' even though the shoulders overlap in a side-on stance seen front-on. This is a geometry artefact presented as a measurement, and it counts toward the score at half weight. Add a minimum-width check (e.g. shoulder width / torso >= ~0.35); below it, mark the metric not_measurable."},
+      {"endpoint": "pose_pipeline.quality / analyse_video", "issue": "A heavily occluded clip (legs hidden) gives 'Player appears distant (17%)' because the height fraction is computed only from visible keypoints. The message is misleading: report occlusion or missing joints instead of distance when ankles/knees are missing."},
+      {"endpoint": "pose_pipeline.phases_bowling / metrics_bowling", "issue": "There is no check that the movement matches the chosen discipline. A batting clip run as bowling gives 4 'measured' bowling metrics (release_height 0.65 from a backlift). The score is withheld only because just 1 phase was detected. The vision model's gate ('doesn't appear to show cricket bowling') reduces the risk end to end, but the pipeline itself does not guard against it."},
+      {"endpoint": "pose_pipeline.phases_batting", "issue": "'setup' is marked detected on the first frame whenever the first wrist speed is below 0.6, even if the player is walking in. bat.mp4 gives head_over_front_foot exactly 0.0 (nose x == front ankle x == 210.4 px at an estimated impact frame), and the overall score is 98 for an amateur clip with 2 of 4 metrics on estimated phases. The ideal ranges may be too wide to separate techniques. This is a product/heuristic concern, not a crash."},
+      {"endpoint": "report_pdf.get_or_build", "issue": "The cache key is only PDF_VERSION + report_level. If a report is edited or regenerated the cached PDF goes stale, and old PDF media_assets are never deleted on rebuild. Concurrent first requests can each build and insert duplicate assets (no lock or upsert)."},
+      {"endpoint": "analysis_routes.build_pdf (lines ~331-370)", "issue": "Dead legacy PDF builder still in the file and no longer used by the /pdf route (report_pdf.get_or_build is used). Remove it to avoid confusion."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Report page - Kinematic breakdown (Biomech.jsx)", "issues": ["Thumbnails are forced to aspect-[3/4] with object-contain, so landscape 16:9 side-on frames are mostly black letterbox and the batter is tiny (~30 px). Use an aspect that matches frame_size, or crop around the keypoint bbox (same applies to the PDF phase grid)."]},
+      {"screen": "PDF report", "issues": ["Pages 2+ have a 34pt header but the frame topMargin stays at 84, leaving ~50pt of empty space under the header on every continuation page.", "The 'Video quality notes' paragraph can orphan onto the next page, away from the kinematic grid (seen on report FDCE94BC).", "Limitations are joined with '; ' after sentences that already end in a period, producing '.;' artefacts.", "Each section is wrapped in KeepTogether, so medium-length tables jump to the next page and leave large blank areas at the bottom of the previous one."]},
+      {"screen": "Brand logo (Common.jsx Logo, /logo.png)", "issues": ["logo.png is 187 KB at 600x400 but shown at 76x48 px. The tagline under the wordmark is unreadable at that size; serve a smaller, optimised asset (e.g. logo_sm or WebP at 2x)."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_report_pdf_security.py", "/app/backend/tests/pose_acceptance.py", "/app/backend/tests/pose_occlusion_check.py", "/app/backend/tests/render_pdf_check.py", "/app/backend/tests/pdf_split_check.py", "/app/test_reports/pytest/pdf_security.xml"],
+  "action_items": [
+    "Add a shoulder-width/foreshortening guard to the shoulder_alignment metric (front-on 63.4 deg false measurement).",
+    "Make quality issues distinguish occlusion (missing lower-body joints) from a distant player.",
+    "Optional: add a discipline sanity check in the bowling pipeline (e.g. wrist above head for release must be detected before reporting metrics as 'measured').",
+    "report_pdf.get_or_build: include a report updated_at/hash in the cache key, delete superseded PDF assets, and guard against concurrent duplicate builds.",
+    "Remove the dead build_pdf in analysis_routes.py.",
+    "Biomech.jsx/PDF phase grid: avoid heavy letterboxing of landscape frames (match the aspect or crop to the player).",
+    "PDF: shrink topMargin on continuation pages, keep quality notes with the grid, fix the '.;' join in limitations.",
+    "Replace the 187KB logo.png with an optimised asset.",
+    "Fix or replace /root/testvids/occluded.mp4 so the occluder covers the batter; the v_*.mp4 files there are failed downloads (XML), so no real bowling clip is available."
+  ],
+  "critical_code_review_comments": [
+    "pose_pipeline.py 471 lines is fine. The scoring thresholds (>=3 metrics, >=60% weight, >=2 detected phases) are correctly enforced in score(), and the unusable path returns null values with the reason.",
+    "_metric correctly leaves value None for not_measurable. low_confidence values are shown but excluded from the score, as specified.",
+    "/pdf route: get_job_authorized returns 404 for non-viewers (no leakage that the job exists), staff bypass the pdf_export entitlement, and 402 otherwise.",
+    "The media endpoint relies on 15-min HMAC-signed URLs (a bearer capability). This is acceptable, but signed URLs embedded in the job JSON could be shared within the TTL.",
+    "_track opens one VideoCapture and seeks per frame. Fine for 16+~20 frames, but seeking on long H.264 clips is slow. The model lock serialises all pose jobs on the server."
+  ],
+  "updated_files": ["/app/backend/tests/test_report_pdf_security.py", "/app/backend/tests/pose_acceptance.py", "/app/backend/tests/pose_occlusion_check.py", "/app/backend/tests/render_pdf_check.py", "/app/backend/tests/pdf_split_check.py"],
+  "success_rate": {"backend": "95% (PDF security 5/5 incl. real E2E; the pipeline met every acceptance invariant on all clips; minor accuracy issues found)", "frontend": "100% of requested flows"},
+  "test_credentials": "e2e_admin@example.com / Passw0rd1 (super_admin). TEST players were created via signup and OTP (dev_outbox) and deleted afterwards.",
+  "seed_data_creation": "None persisted. TEST_ users, their job, report and media were deleted in the pytest teardown. The PDF cache for report fdce94bc was force-rebuilt (same version).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Pose acceptance: run `cd /root/testvids && python /app/backend/tests/pose_acceptance.py` in the background (~4 min); results go to /tmp/pose_acceptance.json. PDF security: `pytest tests/test_report_pdf_security.py -n 1` (~2.5 min because of the full player job). PDF render: tests/render_pdf_check.py and pdf_split_check.py write PNGs to /tmp. Admin measured job: b0972c9a9acc4299a1be7a52bd7a0adf (score 98). Insufficient front-on job: c9aa67daa35047c086bec49fca451392 (owner cricanalyze.in@gmail.com)."
+}
