@@ -14,7 +14,7 @@ import { PostCard } from "@/pages/Blog";
 const ORG = { "@context": "https://schema.org", "@type": "Organization", name: "CricAnalyze", legalName: "Buddy Innovations and Technologies Pvt Ltd", url: SITE, email: "noreply@cricanalyze.in" };
 const WEBSITE = { "@context": "https://schema.org", "@type": "WebSite", name: "CricAnalyze", url: SITE };
 const Section = ({ children, className = "" }) => <section className={`max-w-7xl mx-auto px-4 sm:px-6 py-16 md:py-24 ${className}`}>{children}</section>;
-const H2 = ({ eyebrow, title, desc }) => (<div className="mb-12 max-w-2xl"><div className="eyebrow mb-3">{eyebrow}</div><h2 className="text-3xl sm:text-4xl font-bold">{title}</h2>{desc && <p className="text-slate-400 mt-3">{desc}</p>}</div>);
+const H2 = ({ eyebrow, title, desc, h1 }) => { const H = h1 ? "h1" : "h2"; return (<div className="mb-12 max-w-2xl"><div className="eyebrow mb-3">{eyebrow}</div><H className="text-3xl sm:text-4xl font-bold">{title}</H>{desc && <p className="text-slate-400 mt-3">{desc}</p>}</div>); };
 
 const FEATURES = [
   [Video, "Batting analysis", "Stance, head position, trigger, footwork, weight transfer, bat path and follow-through — assessed from frames of your video."],
@@ -97,7 +97,7 @@ export const PlanGrid = () => {
 };
 
 export const Features = () => (<><Seo title="Features" path="/features" description="Batting and bowling analysis, evidence frames, drills, AI coach, training planner, academy tools and more." />
-  <Section><H2 eyebrow="Features" title="Everything in CricAnalyze" />
+  <Section><H2 h1 eyebrow="Features" title="Everything in CricAnalyze" />
     <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">{[...FEATURES, [MessageIcon, "AI Coach & Ask CricAnalyze", "Ask questions about your own reports. Answers cite report evidence and say so when data is missing."],
       [Layers, "Multi-angle input", "Label side-on, front-on and behind angles. Each angle gets its own visibility check; no 3D reconstruction is claimed."],
       [ShieldCheck, "Privacy first", "Private video storage, expiring links, guardian consent for minors, data export and account deletion."]].map(([I, t, d]) => <Card key={t}><I className="text-[#10B981] mb-4" /><h3 className="font-semibold text-lg mb-2">{t}</h3><p className="text-sm text-slate-400">{d}</p></Card>)}</div>
@@ -105,7 +105,7 @@ export const Features = () => (<><Seo title="Features" path="/features" descript
 function MessageIcon(p) { return <Brain {...p} />; }
 
 export const HowItWorks = () => (<><Seo title="How it works" path="/how-it-works" description="Record, upload, get an AI-assisted report and practise with linked drills." />
-  <Section><H2 eyebrow="How it works" title="From clip to practice plan in four steps" />
+  <Section><H2 h1 eyebrow="How it works" title="From clip to practice plan in four steps" />
     <ol className="grid md:grid-cols-4 gap-5">{[["Record", "Film 5–30 seconds side-on or front-on, in good light, whole body in frame, 30fps or higher."], ["Upload", "Choose batting or bowling, label the camera angle and confirm consent. We check the file is a real, readable video."],
       ["Analyse", "We sample frames and an AI vision model describes what it can see, with timestamps and confidence. Usually takes 1–3 minutes."], ["Practise", "Follow the linked drills, generate a training plan, and compare your next video with this one."]]
       .map(([t, d], i) => <li key={t} className="glass rounded-xl p-6"><div className="font-mono text-[#00B4D8] text-sm">0{i + 1}</div><h3 className="text-xl font-bold mt-2 mb-2">{t}</h3><p className="text-sm text-slate-400">{d}</p></li>)}</ol>
@@ -113,10 +113,10 @@ export const HowItWorks = () => (<><Seo title="How it works" path="/how-it-works
   </Section></>);
 
 export const Pricing = () => (<><Seo title="Pricing" path="/pricing" description="Batting, bowling and all-rounder plans with analysis credits. Pay securely with Razorpay." />
-  <Section><H2 eyebrow="Pricing" title="Simple plans, clear limits" desc="Credits are reserved when an analysis starts and refunded automatically if processing fails." /><PlanGrid /></Section></>);
+  <Section><H2 h1 eyebrow="Pricing" title="Simple plans, clear limits" desc="Credits are reserved when an analysis starts and refunded automatically if processing fails." /><PlanGrid /></Section></>);
 
 export const About = () => (<><Seo title="About" path="/about" description="CricAnalyze is built by Buddy Innovations and Technologies Pvt Ltd." />
-  <Section><H2 eyebrow="About" title="Built to make good coaching feedback more accessible" />
+  <Section><H2 h1 eyebrow="About" title="Built to make good coaching feedback more accessible" />
     <div className="grid md:grid-cols-2 gap-10 items-center"><div className="space-y-4 text-slate-300 leading-relaxed"><p>CricAnalyze is a product of Buddy Innovations and Technologies Pvt Ltd. We help cricketers understand their technique using AI-assisted video review — with honest limits, clear evidence and practical drills.</p>
       <p>We don't publish fake testimonials or invented statistics, and we never present AI output as an official selection credential.</p></div>
       <img src="/images/nets.jpg" alt="Cricket practice nets" className="rounded-2xl h-80 w-full object-cover" /></div>
@@ -136,7 +136,7 @@ export const FaqList = ({ limit }) => (
   </Accordion>
 );
 export const Faq = () => (<><Seo title="FAQ" path="/faq" description="Answers about video requirements, AI analysis, privacy, minors and payments." jsonLd={{ "@context": "https://schema.org", "@type": "FAQPage", mainEntity: FAQS.map(([q, a]) => ({ "@type": "Question", name: q, acceptedAnswer: { "@type": "Answer", text: a } })) }} />
-  <Section><H2 eyebrow="FAQ" title="Frequently asked questions" /><FaqList /></Section></>);
+  <Section><H2 h1 eyebrow="FAQ" title="Frequently asked questions" /><FaqList /></Section></>);
 
 export const Contact = () => {
   const [f, setF] = useState({ name: "", email: "", subject: "", message: "", website: "" });
@@ -146,7 +146,7 @@ export const Contact = () => {
     try { const { data } = await api.post("/contact", f); toast.success(data.message); setF({ name: "", email: "", subject: "", message: "", website: "" }); } catch (err) { toast.error(errMsg(err)); } finally { setBusy(false); }
   };
   return (<><Seo title="Contact" path="/contact" description="Contact the CricAnalyze team." />
-    <Section><H2 eyebrow="Contact" title="Talk to us" desc="Questions about plans, academies or your account? Send a message and we'll reply by email." />
+    <Section><H2 h1 eyebrow="Contact" title="Talk to us" desc="Questions about plans, academies or your account? Send a message and we'll reply by email." />
       <form onSubmit={submit} className="glass rounded-2xl p-6 max-w-2xl grid gap-4" data-testid="contact-form">
         <div className="grid sm:grid-cols-2 gap-4"><Input placeholder="Your name" required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} data-testid="contact-name" aria-label="Name" />
           <Input type="email" placeholder="Email" required value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} data-testid="contact-email" aria-label="Email" /></div>

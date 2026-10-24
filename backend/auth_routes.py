@@ -72,6 +72,9 @@ async def signup(body: SignupIn, request: Request):
                                    "password_hash": ph.hash(body.password), "email_verified": False, "status": "active",
                                    "created_at": now(), "profile": {}, "privacy": {"leaderboard_opt_in": False},
                                    "terms_accepted_at": now()})
+    else:
+        await db.users.update_one({"id": existing["id"], "email_verified": False}, {"$set": {
+            "password_hash": ph.hash(body.password), "full_name": body.full_name.strip(), "role": body.role, "terms_accepted_at": now()}})
     await issue_otp(email, "verify_email", request)
     return {"ok": True, "message": GENERIC}
 

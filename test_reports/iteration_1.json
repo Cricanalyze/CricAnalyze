@@ -1,0 +1,50 @@
+{
+  "summary": "Iteration 1: full backend + frontend E2E against the public URL. Backend: 17 pytest scenarios (4 files), 14 pass. Every flow listed in the review request works: signup/OTP (wrong code uses up an attempt, reused code rejected, resend within 60s gives 429, expired code rejected), unverified login 403, 5-wrong-password lockout, OTP login, forgot/reset (token single-use, all sessions revoked), CSRF 403, RBAC (player/editor/admin/super_admin), plans and entitlements 402 gating, batting single-video limit, bowling multi-angle with unique angles, video validation (415 fake, 422 >30s), credit reservation plus ledger, idempotency, real Claude report done in under 100s, other user gets 404, owner PDF, refund of the failed job when its video is deleted, expired subscription gives 0 credits/402, Razorpay order (bad signature 400, payment marked failed), webhook 503 (secret not set), blog draft/publish/sitemap/unpublish/schedule (published by the scheduler)/slug redirect/-2 suffix/player 403, academy tenant isolation, assignment and consent gating, passport share and revoke. The 3 failures are security/robustness bugs I found myself, beyond the requested checks. Frontend: all public pages, 404, signup->OTP->dashboard, no-plan states, super admin tabs, blog CMS create+publish->public, full UI upload->analysis->report->PDF, and the mobile 390px layout (no horizontal overflow) all work.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "POST /api/auth/signup", "issue": "Account pre-hijacking. If the email already exists unverified, signup keeps the FIRST password/name/role and just sends a new OTP. Attacker pre-registers victim@x with their own password; victim signs up later with their own password and verifies the OTP; the attacker's password now logs into the verified account and the victim's chosen password fails. Reproduced in test_auth.py::TestSecurityEdges::test_pre_account_hijack (attacker login 200). Fix: on signup of an existing unverified user, overwrite password_hash/full_name/role (or set the password at verify time).", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "core.client_ip (all IP rate limits: signup 10/hr, login 30/15min, verify 30/15min, otpip)", "issue": "Uses the FIRST X-Forwarded-For value, which the client controls. Any caller can rotate a fake XFF to bypass all per-IP limits (confirmed: a rate_limits key 'login:1.2.3.4:*' was created from a spoofed header). Use the right-most / trusted-proxy hop instead."},
+      {"endpoint": "GET /api/analyses?date_from=notadate", "issue": "500 (ValueError from datetime.fromisoformat is unhandled). Validate and return 422."},
+      {"endpoint": "POST /api/auth/login/otp/verify", "issue": "OTP login works while the account is password-locked (locked_until), and login_response clears the lock. Probably acceptable since it needs inbox access, but this is a design decision to document."},
+      {"endpoint": "POST /api/billing/webhook", "issue": "Returns 503 because RAZORPAY_WEBHOOK_SECRET is not set. Expected, but async payment capture/refund webhooks won't work until it is configured."},
+      {"endpoint": "POST /api/videos", "issue": "Accepts any ftyp container (e.g. mp4v/MPEG-4 Part 2 or HEVC) with no transcoding. Such videos don't play in the report page <video> in Chrome (it showed a blank player for the cv2 mp4v sample). Consider checking the codec or transcoding to H.264."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Upload page file picker", "issue": "No client-side type check: a fake .mp4 (text) is added to the list and only rejected (415 toast) after Start analysis. The consent checkbox is then reset. Minor UX.", "selector": "[data-testid='video-file-input']", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Public pages /features, /how-it-works, /pricing, /about, /faq, /contact", "issues": ["No <h1>: the page title uses an H2 component. Bad for SEO; render the page heading as h1."]},
+      {"screen": "Blog CMS schedule, Upload DOB, Settings DOB, History filters, Admin coupon/plan dates", "issues": ["Native browser date pickers (input type=date / datetime-local) instead of the shadcn Calendar/Popover"]},
+      {"screen": "Upload page", "issues": ["The Bowling type button looks disabled/low-contrast on a batting-only plan with no tooltip/explanation"]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/conftest.py", "/app/backend/tests/test_auth.py", "/app/backend/tests/test_rbac_billing_analysis.py", "/app/backend/tests/test_blog_academy_passport.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "HIGH: Fix the account pre-hijack in /api/auth/signup (update the password hash etc. for an existing unverified user, or invalidate the old password on verify)",
+    "Fix client_ip to not trust the client-supplied first X-Forwarded-For entry",
+    "Return 422 for invalid date_from/date_to in GET /api/analyses",
+    "Use h1 for page headings on features/how-it-works/pricing/about/faq/contact",
+    "Optionally: client-side video type validation; shadcn calendar instead of native date inputs; set RAZORPAY_WEBHOOK_SECRET"
+  ],
+  "critical_code_review_comments": [
+    "auth_routes.signup: an existing unverified user record is never updated (pre-hijack, see above)",
+    "core.client_ip trusts xff.split(',')[0], so every IP rate limit can be bypassed",
+    "analysis_routes.list_analyses: unvalidated fromisoformat gives a 500",
+    "coach_routes /coach/chat has no per-user rate limit or daily cap visible (AI cost abuse by paid users); consider one",
+    "blog unpublish keeps published_at, so a later slug change on a draft still creates a redirect (harmless but noisy)",
+    "Uploaded objects in storage are not removed when a video is soft-deleted or the account is deleted (only DB flags change)"
+  ],
+  "updated_files": ["/app/backend/tests/conftest.py", "/app/backend/tests/test_auth.py", "/app/backend/tests/test_rbac_billing_analysis.py", "/app/backend/tests/test_blog_academy_passport.py"],
+  "success_rate": {"backend": "82% (14/17; all 3 failures are new security/robustness findings, all requested flows pass)", "frontend": "95%"},
+  "test_credentials": "Used e2e_admin@example.com / Passw0rd1 (super_admin) from /app/memory/test_credentials.md. All other users were created per run with test_*@example.com and deleted afterwards.",
+  "seed_data_creation": "None kept. All test users (45), their sessions/subs/jobs/reports/videos/academies/OTP/outbox and test- blog posts were deleted from Mongo after the run. Storage objects for test videos remain in object storage.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run: cd /app/backend/tests && python -m pytest /app/backend/tests -n 4 -v (pytest.ini forces xdist). conftest.C wraps requests, adds X-CSRF-Token from the ca_csrf cookie and a random X-Forwarded-For (works around the shared-IP signup rate limit; this relies on the XFF bug, so once that's fixed, tests may hit the signup 10/hr/IP limit and conftest needs another approach, e.g. creating users directly in Mongo). OTP codes come from Mongo dev_outbox {to, template, code}. The analysis test does a real Claude call (~30-60s). Sample videos are built with cv2 from hero.jpg (mp4v codec, doesn't play in Chrome). The bowling job fails with 'doesn't appear to show cricket bowling' (the AI correctly rejects a batting image) and is refunded, which is good behaviour. Admin PATCH /admin/users needs confirm:true. Cleanup script: delete users matching ^test_.*@example.com created after the run start.",
+  "rca of the issue": "Pre-hijack: signup() branch `if existing and existing.get('email_verified')` returns generic; for an existing unverified user it skips the insert and only calls issue_otp, so password_hash stays the first registrant's. verify_email then marks the account verified and logs in. Repro: signup(email, pwA); wait 60s; signup(email, pwB); verify OTP; login(email, pwA) -> 200. Mitigation: in the unverified-existing branch, $set password_hash=ph.hash(body.password), full_name, role, then invalidate the old sessions."
+}

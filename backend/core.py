@@ -47,7 +47,7 @@ def hsign(value: str) -> str:
 
 def client_ip(request: Request) -> str:
     xff = request.headers.get("x-forwarded-for", "")
-    return xff.split(",")[0].strip() if xff else (request.client.host if request.client else "")
+    return xff.split(",")[-1].strip() if xff else (request.client.host if request.client else "")
 
 
 def norm_email(e: str) -> str:

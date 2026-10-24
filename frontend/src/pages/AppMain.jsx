@@ -114,7 +114,7 @@ export const Upload = () => {
       {!staff && allowed.length === 0 ? <Empty title="No active plan" desc="Choose a plan to start analysing videos." action={<Button asChild><Link to="/app/billing">View plans</Link></Button>} testid="upload-no-plan" /> :
       <div className="grid lg:grid-cols-5 gap-6">
         <div className="lg:col-span-3 space-y-4">
-          <div className="flex gap-2">{["batting", "bowling"].map((t) => <button key={t} disabled={!allowed.includes(t)} onClick={() => setType(t)} data-testid={`type-${t}-btn`}
+          <div className="flex gap-2">{["batting", "bowling"].map((t) => <button key={t} disabled={!allowed.includes(t)} title={allowed.includes(t) ? "" : `${t} analysis isn't included in your plan`} onClick={() => setType(t)} data-testid={`type-${t}-btn`}
             className={`flex-1 py-3 rounded-lg border capitalize transition-colors disabled:opacity-40 ${type === t ? "border-[#10B981] bg-[#10B981]/10" : "border-white/10 hover:border-white/30"}`}>{t}</button>)}</div>
           <label onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)} onDrop={(e) => { e.preventDefault(); setDrag(false); add(e.dataTransfer.files); }}
             className={`block border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-colors ${drag ? "border-[#10B981] bg-[#10B981]/5" : "border-white/15 hover:border-[#00B4D8]/50"}`} data-testid="dropzone">

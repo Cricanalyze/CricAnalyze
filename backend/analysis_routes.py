@@ -255,6 +255,9 @@ async def list_analyses(type: Optional[str] = None, date_from: Optional[str] = N
     q = {"user_id": owner}
     if type in ("batting", "bowling"):
         q["analysis_type"] = type
+    for d in (date_from, date_to):
+        if d and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", d):
+            raise HTTPException(422, "Dates must be in YYYY-MM-DD format.")
     if date_from or date_to:
         q["created_at"] = {}
         if date_from:
