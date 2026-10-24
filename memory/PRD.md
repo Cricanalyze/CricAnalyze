@@ -30,9 +30,17 @@ User request: professional biomechanical assessment PDF inspired by the attached
 - Official logo in site header/sidebar/auth (frontend/public/logo.png)
 - Tested: iteration_2: clear batting measured (score 98), distant/low-res/legs-occluded → score withheld, bowling template runs, PDF auth owner 200 / other 404 / anon 401, signed media URLs 403 on tamper
 
+## Score + ball tracking (2026-10-24)
+User request: prominent overall technique score /100 (separate batting/bowling rubrics, components + contributions, coverage indicator, stored version/inputs, reproducible, provisional when insufficient, no 'official' claims) and real cricket ball detection/tracking with yellow marker + 'BALL' pointer, trail, estimated segments, gap reasons, toggles, legend, viewer with frame stepping/scrubber; PDF keeps 5 phases on page 1 + ball summary. Choices: general sports-ball detector on server; every frame up to 15 s; component scores only (no overall) when insufficient; user will upload own real clips.
+- score_engine.py ca-score-v2: rubrics per type, documented normalisation, est-phase x0.5, missing excluded, gate (>=3 metrics, >=60% coverage, >=2 detected phases, >=2 components), evidence level, strongest/opportunities, inputs + rubric hash stored; GET /api/analyses/{id}/score-check; tests/test_score_engine.py (7 pass)
+- ball_pipeline.py ca-ball-v1: YOLOX-s COCO 'sports ball' ONNX (models/yolox_s.onnx, BALL_PROVIDER, BALL_MODEL_FILE, BALL_MARKER_COLOR env), native crop + tiled acquisition + periodic full-frame, constant-velocity tracking, confirmed tracks only, interpolation <=6 frames labelled estimated, gap reasons; failures -> 'unavailable', job continues
+- Phase frames get ball overlay only when an observed detection exists on that exact frame; AnalysisViewer.jsx (canvas skeleton + ball, toggles, frame step, scrubber, readout, legend, guidance); /media supports HTTP Range
+- PDF v2.7: score + component table, 5-phase row, ball summary on page 1
+- Tested iteration_3: synthetic real-ball-photo clips (fast/blur, occlusion, exit) max error ~1px, no false positives; 10px ball and no-ball clips -> 'not reliably detected'. NOT yet tested on real cricket footage (awaiting user clips)
+
 ## Backlog
-- P0: set RAZORPAY_WEBHOOK_SECRET; set DEV_EMAIL_OUTBOX=false for production; legal review of policy drafts
-- P1: RunPod GPU pose adapter; discipline check (batting clip submitted as bowling); calibrate ideal ranges with real coach-labelled clips (score 98 on an amateur clip suggests ranges are wide); test with a real bowling clip; H.264 transcoding for non-browser codecs; recurring Razorpay Subscriptions auto-renewal; parent-to-child account linking; blog tables & video embeds; GA/GSC once IDs provided
+- P0: set RAZORPAY_WEBHOOK_SECRET; validate ball tracking on the user's real clips (general COCO detector scored only 0.23 on a close-up cricket ball photo; a cricket-trained model may be needed); set DEV_EMAIL_OUTBOX=false for production; legal review of policy drafts
+- P1: RunPod GPU pose adapter; H.264/HEVC transcoding on upload (iPhone HEVC won't play in Chrome viewer); stream Range responses instead of loading whole object; discipline check (batting clip submitted as bowling); calibrate ideal ranges with real coach-labelled clips (score 98 on an amateur clip suggests ranges are wide); test with a real bowling clip; H.264 transcoding for non-browser codecs; recurring Razorpay Subscriptions auto-renewal; parent-to-child account linking; blog tables & video embeds; GA/GSC once IDs provided
 - P2: server-side rendering/prerender for SEO, monitoring/error tracking, retention auto-cleanup job
 
 ## Next tasks

@@ -251,7 +251,10 @@ def filter_report(rep, level):
         rep["practice_plan"] = None
         for b in rep.get("biomech") or []:
             if lvl < 1:
-                b["metrics"] = [{**m, "value": None, "status": "locked", "reason": "Upgrade to view measured metrics."} for m in b.get("metrics", [])]
+                b["metrics"] = [{**m, "value": None, "metric_score": None, "status": "locked", "reason": "Upgrade to view measured metrics."} for m in b.get("metrics", [])]
+                sc = b.get("score") or {}
+                sc["inputs"] = [{**i, "value": None} for i in sc.get("inputs") or []]
+                sc["metric_scores"] = [{"key": x["key"]} for x in sc.get("metric_scores") or []]
         rep.setdefault("locked", []).append("practice plan")
     return rep
 

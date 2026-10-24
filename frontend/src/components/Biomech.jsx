@@ -22,7 +22,7 @@ const ScoreCard = ({ b }) => {
             <div className="text-sm font-semibold text-[#10B981] mt-1">Technique Score</div></div>
             : <div data-testid="biomech-score-provisional"><Badge tone="amber">Provisional</Badge><p className="font-semibold text-amber-300 mt-2">No overall score: not enough reliable measurements.</p><p className="text-xs text-slate-400 mt-1">Component results below use only what could be measured.</p></div>}
           <div className="mt-4 text-xs space-y-1" data-testid="score-evidence"><div className="flex items-center gap-2">Evidence <Badge tone={EV[sc.evidence?.level]}>{sc.evidence?.level}</Badge></div>
-            <div className="text-slate-400">Coverage {Math.round((sc.coverage || 0) * 100)}% of rubric weight · {sc.detected_phases} detected phases · mean keypoint conf {sc.evidence?.mean_keypoint_confidence}</div></div>
+            <div className="text-slate-400">Coverage {Math.round((sc.coverage || 0) * 100)}% of rubric weight · {sc.detected_phases} detected phases · mean confidence of scored metrics {sc.evidence?.mean_keypoint_confidence}</div></div>
         </div>
         <div className="flex-1 space-y-3" data-testid="score-components">
           {sc.components.map((c) => <div key={c.key} data-testid={`component-${c.key}`}>
@@ -85,7 +85,7 @@ const Metrics = ({ b }) => (
     <p className="text-[11px] text-slate-500 mt-2">{b.methodology?.angle_method} {b.methodology?.coordinate_system} {b.score?.method?.normalisation}</p></Card>);
 
 const Angle = ({ b }) => {
-  if (b.status === "unavailable") return <Card data-testid="biomech-unavailable"><h3 className="font-semibold">Pose measurement unavailable ({b.angle?.replace("_", "-")})</h3><p className="text-sm text-slate-400 mt-1">{b.error} Only AI visual observations are shown below.</p></Card>;
+  if (b.status === "unavailable") return <Card data-testid="biomech-unavailable"><h3 className="font-semibold">Pose measurement unavailable ({b.angle?.replace("_", "-")})</h3><p className="text-sm text-slate-400 mt-1">{b.error} Only AI visual observations are shown below.</p><div className="mt-4"><BallSummary ball={b.ball} /></div></Card>;
   return (
     <div className="space-y-4" data-testid={`biomech-${b.angle}`}>
       <ScoreCard b={b} />

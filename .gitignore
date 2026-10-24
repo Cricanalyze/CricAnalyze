@@ -86,3 +86,4 @@ android-sdk/
 frontend/node_modules/.cache/default-development/7.pack
 frontend/node_modules/.cache/default-development/1.pack
 backend/models/yolox_m_8xb8-300e_humanart-c2c7a14a.onnx
+frontend/node_modules/.cache/default-development/8.pack

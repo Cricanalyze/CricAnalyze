@@ -240,7 +240,7 @@ def phases_batting(seq):
     after = [f for f in v if peak["t"] < f["t"] <= peak["t"] + 0.5]
     if after:
         im = min(after, key=lambda f: hands_up(f) or 9)
-        res["impact"] = _ph(im, "estimated", "Inferred from lowest hand point after the swing peak; bat and ball are not tracked.")
+        res["impact"] = _ph(im, "estimated", "Inferred from lowest hand point after the swing peak; the bat is not tracked and ball contact is not determined.")
         ft = [f for f in v if f["t"] > im["t"]]
         if ft:
             fo = max(ft, key=lambda f: hands_up(f) or -9)

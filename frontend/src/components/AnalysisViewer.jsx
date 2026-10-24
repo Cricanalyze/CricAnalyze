@@ -64,7 +64,7 @@ export const AnalysisViewer = ({ b }) => {
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   const { fps, byFrame } = useFrameState(b);
-  const frame = Math.floor(t * fps + 1e-3);
+  const frame = Math.floor(t * fps + 0.1);
   const det = byFrame.get(frame);
   const pose = (b.pose_track || []).reduce((best, p) => (Math.abs(p.t - t) < Math.abs((best?.t ?? 1e9) - t) ? p : best), null);
   const poseOn = pose && Math.abs(pose.t - t) <= 0.6 / fps + 0.02;
@@ -95,7 +95,7 @@ export const AnalysisViewer = ({ b }) => {
   }, [draw]);
 
   const seek = (s) => { const v = vRef.current; v.pause(); v.currentTime = Math.max(0, Math.min(dur, s)); setT(v.currentTime); };
-  const step = (n) => { const cur = Math.floor((vRef.current?.currentTime || 0) * fps + 1e-3); seek((cur + n) / fps + 0.5 / fps); };
+  const step = (n) => { const cur = Math.floor((vRef.current?.currentTime || 0) * fps + 0.1); seek((cur + n) / fps + 0.5 / fps); };
   const toggle = () => { const v = vRef.current; v.paused ? v.play() : v.pause(); };
 
   return (

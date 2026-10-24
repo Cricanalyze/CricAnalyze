@@ -8,7 +8,7 @@ from reportlab.lib.utils import ImageReader
 from reportlab.platypus import BaseDocTemplate, PageTemplate, Frame, Paragraph, Spacer, Table, TableStyle, KeepTogether, Image
 from core import db, now, uid, get_object, put_object, BUCKET_PREFIX
 
-PDF_VERSION = "2.6"
+PDF_VERSION = "2.7"
 LOGO = Path(__file__).parent / "assets" / "logo_sm.png"
 NAVY, TEAL, EMERALD, INK, MUTED, LINE, SOFT = (colors.HexColor(c) for c in ("#0B132B", "#00A6C4", "#10B981", "#1C2541", "#5B6477", "#D6DCE5", "#F2F6FA"))
 W, H = A4
@@ -128,7 +128,7 @@ def score_block(sc, b):
                          "<font size=8 color='#5B6477'>Not enough reliable measurements. Components use only what could be measured.</font>", ParagraphStyle("prov", parent=ST["body"], leading=14))
     ev = sc.get("evidence") or {}
     side = Paragraph(f"Evidence: <b>{t(ev.get('level', 'n/a'))}</b> - coverage {round(sc.get('coverage', 0) * 100)}%, {sc.get('detected_phases')} detected phases, "
-                     f"keypoint conf {ev.get('mean_keypoint_confidence')}. Separate from technique quality. {sc['version']} / {sc.get('rubric_hash')}", ST["small"])
+                     f"mean confidence of scored metrics {ev.get('mean_keypoint_confidence')}. Separate from technique quality. {sc['version']} / {sc.get('rubric_hash')}", ST["small"])
     rows = [[Paragraph(h, ST["th"]) for h in ("Component", "Score", "Contribution", "Measured")]]
     for c in sc["components"]:
         rows.append([P(c["name"], "cell"), P(f"{round(c['score'])}/100" if c["score"] is not None else "Not measured", "cell"),
@@ -190,6 +190,7 @@ def build(rep, job, owner, blobs):
         label = b.get("angle", "").replace("_", "-")
         if b.get("status") == "unavailable":
             s += section(f"Kinematic breakdown - {label}", P(f"Pose estimation unavailable: {b.get('error', '')}"))
+            s += ball_block(b.get("ball"))
             continue
         blobs_ok = phase_grid(b, blobs)
         s += section(f"Kinematic breakdown - {label} camera", P("Frames extracted from the uploaded video at the timestamps shown. Skeleton overlays are drawn from detected pose keypoints (teal lines; green = confidence >= 0.5, amber = 0.3-0.5). "

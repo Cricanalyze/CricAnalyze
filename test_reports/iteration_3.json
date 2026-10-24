@@ -1,0 +1,55 @@
+{
+  "summary": "Tested the technique score engine (ca-score-v2) and ball tracking (ca-ball-v1) end to end: unit and edge-case tests, score-check reproducibility and authz, dashboard/saved-report/PDF consistency (PDF rendered with pymupdf), ball accuracy against ground truth (t_fast, t_exit), phase-marker integrity, failure tolerance, media Range, the viewer UI in Playwright (desktop and 390px mobile) and a full e2e run with bat.mp4. Nearly everything passes. One real frontend bug: the viewer labels about 1/3 of frames one frame early while playing or scrubbing WebM, so the readout and ball marker belong to the previous frame. One real backend issue: basic-plan locked metric values leak through score.inputs and score.metric_scores.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/analyses/{id} (filter_report)", "issue": "For report_level basic, b.metrics values are locked (value=None, 'Upgrade to view measured metrics.'), but b.score.inputs[*].value and b.score.metric_scores[*].value still contain the raw measured values. This leaks plan-gated data. Reproduced by calling filter_report directly."},
+      {"endpoint": "GET /api/media/{id}", "issue": "Each Range request loads the whole object into memory (get_object) and then slices it. Chromium sent 3 range requests (bytes=0-) for a 1.8 MB clip. Fine for small clips, but memory- and IO-heavy for larger videos. Correctness is fine: 206/416/403 all verified."},
+      {"endpoint": "report_pdf / Biomech.jsx", "issue": "When pose status is 'unavailable', both the PDF (continue at report_pdf.py:191) and the frontend (Angle early return) skip the ball tracking block, even though ball tracking runs independently and may have results."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "AnalysisViewer frame index", "issue": "frame = Math.floor(t*fps + 1e-3). requestVideoFrameCallback mediaTime is millisecond-quantised for WebM (measured: 2.733, 3.133, 3.233, so x30 = 81.99, 93.99, 96.99), so frames 82, 94, 97 and others are labelled as 81, 93, 96 and the PREVIOUS frame's ball detection and marker are drawn over the current image. Reproduced: scrubbing to 127/30 s (the 'best' detection, conf 0.88) shows 'frame 126 / ball conf 0.79'; then viewer-next-frame jumps from 126 to 128. Fix: use a larger epsilon, e.g. Math.floor(t*fps + 0.1), or Math.round(mediaTime*fps) for rVFC times. Stepping from a plain currentTime seek (viewer-next-frame / viewer-prev-frame starting at 2.6 s) did advance exactly one frame: 79, 80, 81, 82, 83, 84 forward and 83, 82, 81 back.", "selector": "[data-testid=viewer-readout]", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "PDF page 1 header vs score block", "issues": ["Two different 'keypoint confidence' numbers on page 1: the header says 0.7 (quality.keypoint_confidence, median of key joints) while the evidence box says 'keypoint conf 0.57' (mean of included-metric confidences). Label them distinctly."]},
+      {"screen": "Impact phase note (dashboard + PDF)", "issues": ["The note says 'bat and ball are not tracked', which contradicts the new ball tracking feature; it should say the bat is not tracked and ball contact is not determined."]}
+    ]
+  },
+  "passed_tests": [
+    "test_score_engine.py 7/7",
+    "Score edge cases: empty inputs, all low_confidence, bowling with release_height not_measurable plus only 1 detected phase gives provisional with component scores and no overall value; contributions sum to the overall value; estimated-phase weight is x0.5",
+    "score-check reproducible=true for e6f49bd3... and 2c04878e...; another user gets 404; anonymous gets 401",
+    "Dashboard = saved report = PDF page 1 for e6f49bd3: overall 70, Balance 88 (+27.1), Head & body alignment 82 (+15.8), Front-leg joint angle 75 (74.7, +14.4), Backlift position 43 (42.7, +13.1), Evidence medium, coverage 62%, 4 detected phases, kconf 0.57, ca-score-v2/80b1a0069821. All 5 phases, ball markers and the Ball tracking summary are on PDF page 1",
+    "Ball accuracy: t_fast tracked 51/55, maxerr 0.9px, 0 false positives; t_exit tracked 70/72, maxerr 1.1px, 0 false positives, gap 'Likely left the frame.'",
+    "Phase ball markers exist only where an observed detection sits on exactly phase.idx, with matching cx/cy (both jobs)",
+    "Failure tolerance: BALL_PROVIDER=disabled, an unknown provider or a missing model raise BallUnavailable; process_job catches every exception and sets status unavailable",
+    "E2E bat.mp4 (job 3d2c187b...): completed; ball not_detected with 2 weak candidates rejected; no phase markers; PDF page 1 shows 'Ball not reliably detected in this video.'; score 75 reproducible; UI shows ball-not-detected",
+    "Media: Range 0-99 gives 206 with Content-Range bytes 0-99/N; suffix range -50 gives 206; out-of-range gives 416 with bytes */N; tampered sig gives 403",
+    "Viewer: loading spinner clears; at currentTime 2.6 the readout shows frame 78 and ball conf 0.23; scrubber seeks; ball and skeleton toggles clear and restore the canvas pixels (1477 yellow pixels to 0 and back); overlay-legend present (x2); phase-ball-toggle swaps 4 phase images (ball overlay to pose overlay; setup has no ball, so it is unchanged); ball-summary shows 96/210, 45.7%, 0.88 at 4.233s; filming tip present",
+    "Mobile 390px: no horizontal page overflow (the metrics table scrolls inside its overflow-x-auto card by design)"
+  ],
+  "test_report_links": ["/app/backend/tests/test_score_edge_cases.py", "/app/backend/tests/test_score_ball_api.py", "/app/backend/tests/test_ball_failure_tolerance.py", "/app/test_reports/pytest/score_ball.xml"],
+  "action_items": [
+    "Fix the AnalysisViewer frame index: Math.floor(t*fps + 1e-3) gives an off-by-one with ms-quantised rVFC mediaTime. Use Math.floor(t*fps + 0.1) or round the mediaTime.",
+    "filter_report: when metrics are locked (lvl<1), also strip values from score.inputs and score.metric_scores (or drop them).",
+    "Show the ball summary in the PDF and UI even when pose is unavailable.",
+    "Reword the impact phase note ('bat and ball are not tracked') and disambiguate the two keypoint-confidence numbers on PDF page 1."
+  ],
+  "critical_code_review_comments": [
+    "ball_pipeline: overlapping tracks can produce two observed detections on the same frame. phase_marker takes the first one and the frontend Map keeps the last one, so they can disagree. This is rare.",
+    "AnalysisViewer: the rVFC effect depends on draw, which changes every frame, so the callback is cancelled and re-registered on every frame during playback. It works, but it is churn.",
+    "AnalysisViewer: there is no timeout on the loading state. Under backend CPU load (during the ball test) one run stayed on viewer-loading for more than 30s; it loaded in about 5s once the CPU was idle.",
+    "score_engine: strongest and opportunities can name the same metric when there are few metrics with scores of 80-90.",
+    "pose_pipeline uses seek-based reads (CAP_PROP_POS_FRAMES) for idx, while ball_pipeline reads sequentially. On VFR/B-frame codecs the indices can drift, so phase.idx and ball.frame may not refer to the same image."
+  ],
+  "updated_files": ["/app/backend/tests/test_score_edge_cases.py", "/app/backend/tests/test_score_ball_api.py", "/app/backend/tests/test_ball_failure_tolerance.py"],
+  "success_rate": {"backend": "100% of tests (27/27 new + 7/7 existing); 1 data-leak issue found by code review and reproduced", "frontend": "~90% (one viewer frame-index bug)"},
+  "test_credentials": "e2e_admin@example.com / Passw0rd1 (super_admin). The TEST user created by test_score_ball_api.py is cleaned up in its fixture teardown (verified 0 remaining).",
+  "seed_data_creation": "The e2e.sh run created analysis job 3d2c187b5c384582b244bb24026578c5 (bat.mp4) for e2e_admin.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run the pytest files with -n 0 (pytest.ini enables xdist). Jobs: e6f49bd3 (WebM, plays in headless Chromium), 2c04878e (mp4), 3d2c187b (bat.mp4, ball not_detected). To verify the frame fix: scrub to 127/30 s; the readout should show frame 127 and ball conf 0.88. In Playwright, wait for viewer-video to be attached before waiting for viewer-loading to detach. The selector [data-testid^=phase-ball-] also matches phase-ball-toggle."
+}
