@@ -1,0 +1,15 @@
+User-agent: *
+Allow: /
+Disallow: /app
+Disallow: /admin
+Disallow: /login
+Disallow: /signup
+Disallow: /verify-email
+Disallow: /forgot-password
+Disallow: /reset-password
+Disallow: /passport/
+Disallow: /api/
+Allow: /api/sitemap.xml
+Allow: /api/blog/images/
+
+Sitemap: https://cricanalyze.in/api/sitemap.xml
