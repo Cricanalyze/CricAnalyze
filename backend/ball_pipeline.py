@@ -17,7 +17,10 @@ MAX_GAP = 6
 MIN_TRACK_PTS = 4
 NOT_DETECTED = "Ball not reliably detected in this video."
 MODEL_META = {"local_yolox_coco": {"detector": f"YOLOX ({MODEL_FILE}, COCO class 'sports ball')", "runtime": "ONNX Runtime, CPU, CricAnalyze server",
-                                   "note": "General-purpose detector, not cricket-specific: small, distant or blurred balls are often missed."}}
+                                   "note": "General-purpose detector, not cricket-specific: small, distant or blurred balls are often missed."},
+              "ultralytics_yolo26": {"detector": "Ultralytics YOLO26n (COCO class 'sports ball')", "runtime": "Ultralytics Platform hosted inference",
+                                     "note": "General-purpose detector, not cricket-specific: small, distant or blurred balls are often missed."}}
+CLOUD_MAX_FRAMES = int(os.environ.get("ULTRALYTICS_BALL_MAX_FRAMES", "60"))
 METHOD = {
     "sampling": f"Every original frame in a window of up to {MAX_WINDOW_S:.0f}s (frame stride raised only if the window exceeds {MAX_FRAMES} frames); timestamps = frame index / FPS.",
     "detection": f"Every processed frame: a native-resolution crop (detector input size) around the predicted ball position or the player. "
@@ -192,7 +195,7 @@ def analyse(path, meta, pose_track=None, t_center=None):
     p = provider()
     if p == "disabled":
         raise BallUnavailable("Ball detection is disabled on this server.")
-    if p != "local_yolox_coco":
+    if p not in MODEL_META:
         raise BallUnavailable(f"Ball provider '{p}' is not configured.")
     cap = cv2.VideoCapture(path)
     fps = cap.get(cv2.CAP_PROP_FPS) or 25
@@ -207,6 +210,40 @@ def analyse(path, meta, pose_track=None, t_center=None):
         t0 = 0.0
     f0, f1 = int(t0 * fps), min(n, int((t0 + MAX_WINDOW_S) * fps))
     stride = max(1, math.ceil((f1 - f0) / MAX_FRAMES))
+    method = METHOD
+    if p == "ultralytics_yolo26":
+        c = t_center if t_center is not None else dur / 2
+        f0 = max(0, min(n - CLOUD_MAX_FRAMES, int(c * fps) - CLOUD_MAX_FRAMES // 2))
+        f1, stride = min(n, f0 + CLOUD_MAX_FRAMES), 1
+        method = {**METHOD, "sampling": f"Up to {CLOUD_MAX_FRAMES} consecutive original frames centred on the fastest hand movement (hosted inference is rate-limited); timestamps = frame index / FPS.",
+                  "detection": f"Every processed frame: full frame sent to Ultralytics YOLO26n at 1280 px. Candidates kept at detector confidence >= {CAND_MIN}."}
+        cands, processed = _gather_cloud(cap, f0, f1, W, H, pose_track, fps)
+    else:
+        cands, processed = _gather_local(cap, f0, f1, stride, W, H, pose_track, fps)
+    cap.release()
+    return _finalize(cands, processed, f0, f1, stride, fps, W, H, diag, pose_track, p, method)
+
+
+def _gather_cloud(cap, f0, f1, W, H, pose_track, fps):
+    from ultralytics_client import balls, UltralyticsError
+    cap.set(cv2.CAP_PROP_POS_FRAMES, f0)
+    cands, processed = {}, 0
+    for fi in range(f0, f1):
+        ok, img = cap.read()
+        if not ok:
+            break
+        processed += 1
+        try:
+            d = balls(img, CAND_MIN, 1280)
+        except UltralyticsError as e:
+            raise BallUnavailable(str(e))
+        d = [x for x in d if _plausible(x, W, H, _player_box(pose_track, fi / fps, W, H))]
+        if d:
+            cands[fi] = d
+    return cands, processed
+
+
+def _gather_local(cap, f0, f1, stride, W, H, pose_track, fps):
     cap.set(cv2.CAP_PROP_POS_FRAMES, f0)
     cands, processed, fi, pred, last_hit = {}, 0, f0, None, -99
     with _lock:
@@ -241,7 +278,10 @@ def analyse(path, meta, pose_track=None, t_center=None):
                     if best[4] >= START_MIN:
                         pred, last_hit = (best[0], best[1]), fi
             fi += 1
-    cap.release()
+    return cands, processed
+
+
+def _finalize(cands, processed, f0, f1, stride, fps, W, H, diag, pose_track, p, method):
     tracks = [t for t in _track(cands, diag) if _confirmed(t, diag)]
     tracks.sort(key=lambda t: t["pts"][0][0])
     dets, gaps = [], []
@@ -275,7 +315,7 @@ def analyse(path, meta, pose_track=None, t_center=None):
     if fps < 50:
         lim.append(f"At {round(fps)} fps a fast ball moves far between frames and is often motion-blurred.")
     best = max(obs, key=lambda d: d["conf"]) if obs else None
-    return {"status": "tracked" if obs else "not_detected", "version": BALL_VERSION, "provider": p, "model": MODEL_META[p], "method": METHOD,
+    return {"status": "tracked" if obs else "not_detected", "version": BALL_VERSION, "provider": p, "model": MODEL_META[p], "method": method,
             "message": None if obs else NOT_DETECTED, "fps": round(fps, 3), "frame_size": [W, H], "window": [round(f0 / fps, 2), round(f1 / fps, 2)], "stride": stride,
             "frames_processed": processed, "frames_detected": len(obs), "coverage": round(len(obs) / processed, 3) if processed else 0,
             "tracks": len(tracks), "rejected_candidates": raw_cands - len(obs) if raw_cands >= len(obs) else 0,

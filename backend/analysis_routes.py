@@ -11,7 +11,7 @@ from fastapi import APIRouter, Request, Response, HTTPException, Depends, Upload
 from pydantic import BaseModel, Field
 from pymongo import ReturnDocument
 from core import (db, now, uid, log, audit, current_user, put_object, get_object, sign_media, verify_media_sig, BUCKET_PREFIX,
-                  entitlements, ledger, is_minor, get_settings, llm_text, send_email, STAFF, LEVELS, sanitize_error, LLM_KEY, AI_MODEL)
+                  entitlements, ledger, is_minor, get_settings, llm_text, send_email, STAFF, LEVELS, sanitize_error, AI_KEY, AI_MODEL)
 
 router = APIRouter(prefix="/api")
 ANGLES = ["side_on", "front_on", "behind", "other"]
@@ -467,7 +467,7 @@ async def run_provider(job, vids, frames_by_video, biomechs=None):
     provider = os.environ.get("AI_INFERENCE_PROVIDER", "vision_llm")
     if provider != "vision_llm":
         raise PermanentError(f"AI provider '{provider}' is not configured on this server.")
-    if not LLM_KEY:
+    if not AI_KEY:
         raise PermanentError("AI analysis provider is not configured. An administrator must add the AI key.")
     imgs = [base64.b64encode(f["jpg"]).decode() for _, fr in frames_by_video for f in fr]
     text = await llm_text(SYSTEM, build_prompt(job["analysis_type"], frames_by_video, job.get("notes"), biomechs, job.get("shot_type")), f"job-{job['id']}-{job['attempts']}", imgs)

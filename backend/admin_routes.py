@@ -4,7 +4,7 @@ from typing import Optional
 from fastapi import APIRouter, Request, HTTPException, Depends
 from pydantic import BaseModel, Field, EmailStr
 from core import (db, now, uid, audit, ADMIN, current_user, optional_user, ROLES, smtp_configured, send_email, get_settings,
-                  DEFAULT_SETTINGS, init_storage, LLM_KEY, AI_MODEL, llm_text, sanitize_error, rate_limit, client_ip, public_user)
+                  DEFAULT_SETTINGS, init_storage, LLM_KEY, AI_KEY, AI_MODEL, llm_text, sanitize_error, rate_limit, client_ip, public_user)
 
 router = APIRouter(prefix="/api")
 RANK = {r: i for i, r in enumerate(ROLES)}
@@ -75,9 +75,11 @@ async def integration_status():
     rows = {x["_id"]: x for x in await db.integration_status.find().to_list(50)}
     defs = {
         "smtp": ("Hostinger SMTP email", smtp_configured(), {"sender": os.environ.get("SMTP_FROM_EMAIL"), "host": os.environ.get("SMTP_HOST")}),
-        "ai": ("AI analysis provider", bool(LLM_KEY) and os.environ.get("AI_INFERENCE_PROVIDER", "vision_llm") == "vision_llm",
+        "ai": ("AI analysis provider (your Anthropic key)", bool(AI_KEY) and os.environ.get("AI_INFERENCE_PROVIDER", "vision_llm") == "vision_llm",
                {"provider": os.environ.get("AI_INFERENCE_PROVIDER", "vision_llm"), "model": AI_MODEL}),
         "gpu_inference": ("Hosted GPU pose inference (RunPod etc.)", bool(os.environ.get("AI_INFERENCE_ENDPOINT") and os.environ.get("AI_INFERENCE_API_KEY")), {}),
+        "ultralytics": ("Ultralytics YOLO26n (pose + ball)", bool(os.environ.get("ULTRALYTICS_API_KEY")),
+                        {"pose_provider": os.environ.get("POSE_PROVIDER"), "ball_provider": os.environ.get("BALL_PROVIDER")}),
         "storage": ("Private object storage", bool(LLM_KEY), {"provider": os.environ.get("VIDEO_STORAGE_PROVIDER", "emergent")}),
         "razorpay": ("Razorpay payments", bool(os.environ.get("RAZORPAY_KEY_ID") and os.environ.get("RAZORPAY_KEY_SECRET")),
                      {"mode": "test" if (os.environ.get("RAZORPAY_KEY_ID") or "").startswith("rzp_test") else "live"}),
@@ -115,6 +117,11 @@ async def test_integration(key: str, body: TestIn, request: Request, a=Depends(A
         elif key == "ai":
             out = await asyncio.wait_for(llm_text("Reply with OK.", "Say OK", f"health-{uid()}"), 40)
             ok, msg = "OK" in out.upper(), "Model responded." if "OK" in out.upper() else "Unexpected reply."
+        elif key == "ultralytics":
+            import numpy as np
+            from ultralytics_client import predict
+            await asyncio.to_thread(predict, np.full((320, 320, 3), 127, np.uint8), "detect")
+            ok, msg = True, "Ultralytics API key accepted."
         elif key == "storage":
             await asyncio.to_thread(init_storage, True)
             ok, msg = True, "Storage key initialised."

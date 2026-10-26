@@ -18,6 +18,8 @@ EDGES = [(5, 6), (5, 7), (7, 9), (6, 8), (8, 10), (5, 11), (6, 12), (11, 12), (1
 MODEL_META = {
     "local_rtmpose": {"pose_model": "RTMPose-m (body7, 256x192) — COCO-17 keypoints", "detector": "YOLOX-m (HumanArt)",
                       "runtime": "ONNX Runtime, CPU, CricAnalyze server", "library": "OpenMMLab rtmlib"},
+    "ultralytics_yolo26": {"pose_model": "Ultralytics YOLO26n-pose — COCO-17 keypoints", "detector": "YOLO26n-pose (person boxes)",
+                           "runtime": "Ultralytics Platform hosted inference"},
     "runpod": {"pose_model": "Hosted endpoint (COCO-17 contract)", "runtime": "Remote GPU (AI_INFERENCE_ENDPOINT)"},
 }
 
@@ -87,6 +89,12 @@ def _infer(imgs):
                 k, s = m(im)
                 out.append([[[float(k[i][j][0]), float(k[i][j][1]), float(s[i][j])] for j in range(17)] for i in range(len(k))])
             return out
+    if p == "ultralytics_yolo26":
+        from ultralytics_client import pose_persons, UltralyticsError
+        try:
+            return [pose_persons(im) for im in imgs]
+        except UltralyticsError as e:
+            raise PoseUnavailable(str(e))
     if p == "runpod":
         ep, key = os.environ.get("AI_INFERENCE_ENDPOINT"), os.environ.get("AI_INFERENCE_API_KEY")
         if not ep or not key:

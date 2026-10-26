@@ -50,3 +50,10 @@ Webhook secret, real bowling clip validation, production publish on cricanalyze.
 - Imported repo into this workspace; installed backend/frontend deps; .env configured (real Hostinger SMTP, DEV_EMAIL_OUTBOX=false, Emergent LLM key, Razorpay test keys, new APP_SECRET, APP_URL = preview URL)
 - Verified: SMTP login OK, Razorpay test order OK, health OK, public pages + auth guards pass smoke test
 - Fix: OTP send failure now returns 503 (502 was masked by Cloudflare) and deletes the unsent OTP so retry works
+
+## Own keys: Claude + Ultralytics YOLO26n (2026-10-26)
+- All LLM features (reports, coach/ask, planner, blog AI) use ANTHROPIC_API_KEY (core.AI_KEY); EMERGENT_LLM_KEY kept only for object storage
+- ultralytics_client.py: Ultralytics Platform hosted yolo26n (ball) + yolo26n-pose (player+17 keypoints); POSE_PROVIDER/BALL_PROVIDER=ultralytics_yolo26; rate limiter ULTRALYTICS_RPM=20; ULTRALYTICS_DETECT_URL/POSE_URL override for dedicated deployments; ball = up to ULTRALYTICS_BALL_MAX_FRAMES (60) consecutive frames around swing peak at 1280px
+- Admin Integrations: Ultralytics row + test button
+- Verified: Claude reply OK; pose 5 persons on test image; full pipeline on 3s clip: pose 24 frames/70s, ball 60 frames/180s
+- Backlog: dedicated Ultralytics deployment to lift 20 req/min (two simultaneous analyses share the limit and may hit the 5-min timeout); test on real cricket clips

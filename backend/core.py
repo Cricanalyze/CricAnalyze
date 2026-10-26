@@ -21,6 +21,7 @@ APP_URL = os.environ["APP_URL"].rstrip("/")
 COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "true") == "true"
 SESSION_DAYS = 14
 LLM_KEY = os.environ.get("EMERGENT_LLM_KEY")
+AI_KEY = os.environ.get("ANTHROPIC_API_KEY")
 AI_MODEL = os.environ.get("AI_MODEL", "claude-sonnet-5-5")
 ph = PasswordHasher()  # argon2id defaults
 
@@ -219,7 +220,7 @@ def _smtp_send(to, subject, html, text):
 
 def sanitize_error(e: Exception) -> str:
     msg = str(e)
-    for k in ("SMTP_PASS", "SMTP_USER", "RAZORPAY_KEY_SECRET", "EMERGENT_LLM_KEY"):
+    for k in ("SMTP_PASS", "SMTP_USER", "RAZORPAY_KEY_SECRET", "EMERGENT_LLM_KEY", "ANTHROPIC_API_KEY", "ULTRALYTICS_API_KEY"):
         v = os.environ.get(k)
         if v:
             msg = msg.replace(v, "***")
@@ -401,6 +402,6 @@ def is_minor(u):
 
 async def llm_text(system: str, prompt: str, session: str, images=None) -> str:
     from emergentintegrations.llm.chat import LlmChat, UserMessage, ImageContent
-    chat = LlmChat(api_key=LLM_KEY, session_id=session, system_message=system).with_model("anthropic", AI_MODEL)
+    chat = LlmChat(api_key=AI_KEY, session_id=session, system_message=system).with_model("anthropic", AI_MODEL)
     msg = UserMessage(text=prompt, file_contents=[ImageContent(image_base64=b) for b in (images or [])] or None)
     return await chat.send_message(msg)

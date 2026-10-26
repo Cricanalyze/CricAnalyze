@@ -4,7 +4,7 @@ from typing import Optional, List
 from fastapi import APIRouter, Request, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from core import db, now, uid, audit, current_user, entitlements, require_ent, get_settings, LLM_KEY, AI_MODEL, STAFF, hsign, llm_text
+from core import db, now, uid, audit, current_user, entitlements, require_ent, get_settings, AI_KEY, AI_MODEL, STAFF, hsign, llm_text
 from analysis_routes import can_view_user_data, parse_json
 
 router = APIRouter(prefix="/api")
@@ -68,7 +68,7 @@ async def coach_chat(body: ChatIn, u=Depends(current_user)):
     owner = body.player_id or u["id"]
     if not await can_view_user_data(u, owner):
         raise HTTPException(404, "Player not found.")
-    if not LLM_KEY:
+    if not AI_KEY:
         raise HTTPException(503, "The AI service is not configured.")
     conv_id = body.conversation_id or uid()
     conv = await db.coach_conversations.find_one({"id": conv_id})
@@ -83,7 +83,7 @@ async def coach_chat(body: ChatIn, u=Depends(current_user)):
     hist = "\n".join(f"{m['role']}: {m['content'][:800]}" for m in history[-8:])
     prompt = f"<player_data>{ctx}</player_data>\n<conversation>{hist}</conversation>\nUser question: {body.message}"
     from emergentintegrations.llm.chat import LlmChat, UserMessage, TextDelta, StreamDone
-    chat = LlmChat(api_key=LLM_KEY, session_id=f"{conv_id}-{uid()[:6]}", system_message=COACH_SYS if body.mode == "coach" else ASK_SYS).with_model("anthropic", AI_MODEL)
+    chat = LlmChat(api_key=AI_KEY, session_id=f"{conv_id}-{uid()[:6]}", system_message=COACH_SYS if body.mode == "coach" else ASK_SYS).with_model("anthropic", AI_MODEL)
 
     async def gen():
         yield f"data: {json.dumps({'conversation_id': conv_id})}\n\n"
