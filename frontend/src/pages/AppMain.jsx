@@ -127,7 +127,7 @@ export const Upload = () => {
   if (!status) return <p className="text-slate-400">Loading…</p>;
   return (
     <div><Seo title="New analysis" path="/app/upload" noindex />
-      <PageHeader eyebrow="New analysis" title="Upload a cricket video" desc={`Up to ${staff ? 3 : maxVideos} video(s), ${ent?.max_duration_s || 30}s each, ${ent?.max_file_mb || 100} MB max. MP4, MOV or WEBM.`} />
+      <PageHeader eyebrow="New analysis" title="Upload a cricket video" desc={`Up to ${staff ? 3 : maxVideos} video(s) of any length, ${ent?.max_file_mb || 100} MB max. MP4, MOV or WEBM. For long clips we find the main shot or delivery and analyse it frame by frame.`} />
       <ConsentGate status={status} reload={loadStatus} />
       {!staff && allowed.length === 0 ? <Empty title="No active plan" desc="Choose a plan to start analysing videos." action={<Button asChild><Link to="/app/billing">View plans</Link></Button>} testid="upload-no-plan" /> :
       <div className="grid lg:grid-cols-5 gap-6">
@@ -241,6 +241,7 @@ export const Report = () => {
   const nav = useNavigate();
   const [job, setJob] = useState(null);
   const [videoUrl, setVideoUrl] = useState(null);
+  const [originalUrl, setOriginalUrl] = useState(null);
   const [frame, setFrame] = useState(null);
   const load = useCallback(() => api.get(`/analyses/${id}`).then(({ data }) => setJob(data)).catch(() => setJob(false)), [id]);
   useEffect(() => { load(); }, [load]);
@@ -249,7 +250,7 @@ export const Report = () => {
     const t = setInterval(load, 4000);
     return () => clearInterval(t);
   }, [job, load]);
-  useEffect(() => { if (job?.video_ids?.[0]) api.get(`/videos/${job.video_ids[0]}/url`).then(({ data }) => setVideoUrl(media(data.url))).catch(() => {}); }, [job?.video_ids]);
+  useEffect(() => { if (job?.video_ids?.[0]) api.get(`/videos/${job.video_ids[0]}/url`).then(({ data }) => { setVideoUrl(media(data.url)); setOriginalUrl(media(data.original_url)); }).catch(() => {}); }, [job?.video_ids]);
   if (job === false) return <Empty title="Analysis not found" testid="report-not-found" />;
   if (!job) return <p className="text-slate-400">Loading…</p>;
   const r = job.report;
@@ -268,7 +269,8 @@ export const Report = () => {
       {r && <div className="mb-6">{r.view ? <PremiumReport r={r} /> : <Biomech r={r} />}</div>}
       {r && <div className="grid lg:grid-cols-5 gap-6" data-testid="report-view">
         <div className="lg:col-span-3 space-y-5">
-          {videoUrl && <video src={videoUrl} controls className="w-full rounded-xl bg-black aspect-video" data-testid="report-video" />}
+          {videoUrl && <div><video src={videoUrl} controls className="w-full rounded-xl bg-black aspect-video" data-testid="report-video" />
+            <div className="flex justify-between text-xs text-slate-500 mt-1.5"><span>Normal-speed playback. Use the analysis viewer above for slow motion.</span>{originalUrl && <a href={originalUrl} download className="text-[#00B4D8] hover:underline" data-testid="original-video-link">Original video</a>}</div></div>}}
           <Card><h3 className="font-semibold mb-1">Frame-by-frame notes</h3><p className="text-xs text-slate-500 mb-3">AI interpretation of sampled frames. Tap a time to see the frame.</p>
             <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">{r.frames.map((f) => <button key={f.index} onClick={() => setFrame(f)} className={`relative rounded-md overflow-hidden border ${frame?.index === f.index ? "border-[#10B981]" : "border-transparent"}`} data-testid={`frame-${f.index}`}>
               <img src={media(f.url)} alt={`Frame at ${f.t}s`} className="aspect-video object-cover w-full" /><span className="absolute bottom-0 left-0 text-[10px] font-mono bg-black/70 px-1">{f.t}s</span></button>)}</div>

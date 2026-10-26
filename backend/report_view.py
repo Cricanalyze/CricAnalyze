@@ -23,6 +23,7 @@ METRIC_TEXT = {
         "follow_through_balance": ("Balance in follow-through", "Sideways gap between the hips and the feet after release; smaller means more balanced."),
     },
 }
+TILT_KEYS = {"shoulder_alignment", "trunk_tilt"}
 UNIT = {"°": "°", "torso lengths": " × torso length"}
 PHASE_TEXT = {
     "setup": "Stance before the movement starts.", "backlift": "Highest hand position before the swing.", "downswing": "Fastest hand movement in the swing.",
@@ -40,7 +41,7 @@ ISSUE_TEXT = [("Low resolution", "Record at 720p or higher so joints are sharper
               ("Camera angle is 'other'", "Film side-on or front-on for the most measurements.")]
 DEFAULT_TIP = {"batting": "Film side-on at hip height, 8–12 m away, with the whole body, feet and bat in frame.",
                "bowling": "Film side-on at hip height from 10–15 m, keeping the whole run-up, delivery stride and follow-through in frame."}
-ANGLE_TIP = {"batting": "Add a side-on clip as well — knee bend and head position can only be measured side-on.",
+ANGLE_TIP = {"front_on": "Add a front-on clip as well — shoulder line and some balance measurements need a front-on view.", "batting": "Add a side-on clip as well — knee bend and head position can only be measured side-on.",
              "bowling": "Add a side-on clip as well — front-knee angle can only be measured side-on."}
 QUALITY_TEXT = {"Good": "Clear footage — measurements are as reliable as a single camera allows.",
                 "Fair": "Usable footage with some issues — a few measurements may be missing or less certain.",
@@ -61,7 +62,7 @@ def ist(dt, with_time=True):
 
 
 def fmt_val(v, unit):
-    return f"{round(v) if unit == '°' else round(v, 2)}{UNIT.get(unit, ' ' + (unit or ''))}"
+    return f"{round(v) if unit == '°' else f'{v:.2f}'}{UNIT.get(unit, ' ' + (unit or ''))}"
 
 
 def video_quality(b):
@@ -81,7 +82,7 @@ def filming_tips(bios, kind):
             if tip and tip not in tips:
                 tips.append(tip)
         if any((m.get("reason") or "").startswith("Camera angle") for m in b.get("metrics") or []):
-            tip = ANGLE_TIP[kind]
+            tip = ANGLE_TIP["front_on" if b.get("angle") == "side_on" else kind]
             if tip not in tips:
                 tips.append(tip)
     return tips[:3] or [DEFAULT_TIP[kind]]
@@ -110,7 +111,7 @@ def metric_rows(b, kind):
             continue
         name, desc = METRIC_TEXT[kind].get(m["key"], (m["name"], ""))
         v = m["value"]
-        lo, hi = (0, 180) if m["unit"] == "°" else (min(0, v * 1.2), max(1.5, v * 1.2))
+        lo, hi = ((0, max(60, v * 1.2)) if m["key"] in TILT_KEYS else (0, 180)) if m["unit"] == "°" else (min(0, v * 1.2), max(1.5, v * 1.2))
         out.append({"key": m["key"], "name": name, "value": v, "unit": m["unit"], "display": fmt_val(v, m["unit"]), "phase": m["phase"], "t": m.get("t"),
                     "scale": [round(lo, 2), round(hi, 2)], "position": round((v - lo) / (hi - lo), 3) if hi > lo else 0,
                     "certainty": "Clear" if m["status"] == "measured" else "Approximate timing",
@@ -170,7 +171,10 @@ def ball_view(ball):
 
 def angle_view(b, kind, tips):
     mets = metric_rows(b, kind) if b.get("status") != "unavailable" else []
-    return {"video_id": b.get("video_id"), "angle": (b.get("angle") or "").replace("_", "-"), "pose_available": b.get("status") != "unavailable",
+    w = b.get("analysed_window") or {}
+    mmss = lambda s: f"{int(s // 60)}:{int(s % 60):02d}"
+    window = f"Analysed {mmss(w['t0'])}–{mmss(w['t1'])} of the clip, the part with the most movement." if w.get("method") == "most_movement" else None
+    return {"video_id": b.get("video_id"), "angle": (b.get("angle") or "").replace("_", "-"), "pose_available": b.get("status") != "unavailable", "analysed_window": window,
             "video_quality": video_quality(b), "score": score_view(b, kind, tips), "metrics": mets, "timeline": timeline(b, kind, mets) if b.get("status") != "unavailable" else [],
             "ball": ball_view(b.get("ball"))}
 
@@ -202,7 +206,7 @@ def build(rep, owner_name=None, history=None, staff=False):
           strengths[0] if strengths else "No area stood out clearly enough in this clip to call a strength.")
     t2 = (f"{opp['name']} ({opp['display']}) is the measurement with the most room to improve." if opp else
           improvements[0] if improvements else "Not enough clear evidence to pick a priority yet.")
-    t3 = (tips[0] if poor or not drills else f"Practise “{drills[0]['name']}”" + (f" — {drills[0]['dosage']}." if drills[0].get("dosage") else "."))
+    t3 = ("Record a clearer clip using the filming tips below." if poor or not drills else f"Practise “{drills[0]['name']}”" + (f" — {drills[0]['dosage']}." if drills[0].get("dosage") else "."))
     working = [s for s in strengths if s != t1][:4]
     co = rep.get("coaching") or {}
     coaching = {"working": working, "priority": co.get("priority") or (improvements[0] if improvements else None),
@@ -213,7 +217,7 @@ def build(rep, owner_name=None, history=None, staff=False):
     plan = None if poor else rep.get("practice_plan")
     actions = []
     if poor:
-        actions.append(tips[0])
+        actions.append("Record a new clip using the filming tips below.")
     if drills:
         actions.append(f"Practise “{drills[0]['name']}”" + (f" ({drills[0]['dosage']})" if drills[0].get("dosage") else "") + (f" to work on {drills[0]['area']}." if drills[0].get("area") else "."))
     if not poor and len(drills) > 1:

@@ -131,11 +131,15 @@ def _main_person(persons, prev_c):
     return best
 
 
-def _track(path):
+DENSE_FPS = float(os.environ.get("POSE_DENSE_FPS", "15"))
+
+
+def _track(path, window=None):
     cap = cv2.VideoCapture(path)
     fps = cap.get(cv2.CAP_PROP_FPS) or 25
     n = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
-    coarse = sorted({int(i * (n - 1) / 15) for i in range(16)})
+    a, b = (int(window[0] * fps), min(n - 1, int(window[1] * fps))) if window else (0, n - 1)
+    coarse = sorted({a + int(i * (b - a) / 15) for i in range(16)})
     frames = {}
 
     def run(idxs):
@@ -156,8 +160,8 @@ def _track(path):
     sp = _speeds(seq)
     if sp:
         t_peak = max(sp, key=lambda x: x[1])[0]["t"]
-        step = max(1, int(round(fps / 8)))
-        dense = list(range(max(0, int((t_peak - 1.6) * fps)), min(n, int((t_peak + 1.0) * fps)), step))
+        step = max(1, int(round(fps / DENSE_FPS)))
+        dense = list(range(max(a, int((t_peak - 1.6) * fps)), min(b + 1, int((t_peak + 1.0) * fps)), step))
         run(dense)
     cap.release()
     return _select(frames), fps
@@ -433,9 +437,9 @@ def overlay(img, kp):
     return out
 
 
-def analyse_video(path, kind, angle_label, meta):
+def analyse_video(path, kind, angle_label, meta, window=None):
     """Returns (result_dict, phase_images) — phase_images: list of (phase_key, raw_jpg, overlay_jpg or None)."""
-    seq, fps = _track(path)
+    seq, fps = _track(path, window)
     q = quality(seq, meta, angle_label)
     base = {"provider": provider(), "model": MODEL_META.get(provider(), {}), "pipeline_version": PIPELINE_VERSION, "methodology": METHODOLOGY, "quality": q}
     if not q["usable"]:

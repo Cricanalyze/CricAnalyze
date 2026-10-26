@@ -9,7 +9,7 @@ from reportlab.platypus import BaseDocTemplate, PageTemplate, Frame, Paragraph, 
 from core import db, now, uid, get_object, put_object, BUCKET_PREFIX
 import report_view
 
-PDF_VERSION = "3.0"
+PDF_VERSION = "3.1"
 LOGO = Path(__file__).parent / "assets" / "logo_sm.png"
 NAVY, TEAL, EMERALD, INK, MUTED, LINE, SOFT = (colors.HexColor(c) for c in ("#0B132B", "#00A6C4", "#10B981", "#1C2541", "#5B6477", "#D6DCE5", "#F2F6FA"))
 W, H = A4
@@ -199,6 +199,8 @@ def build(rep, job, owner, blobs):
             s += section(f"Measurements - {a['angle']} camera", grid_table(rows, [130, 60, 120, CW - 310]),
                          P("Values are measured from the video. Target ranges are not shown until coach-approved references are available.", "small"))
         if a["timeline"]:
+            if a.get("analysed_window"):
+                s.append(P(a["analysed_window"], "small"))
             s += section(f"Technique timeline - {a['angle']} camera", timeline_grid(a, blobs),
                          P("Frames are cropped around the player from the original video at the times shown. 'Approximate timing' frames are best estimates, not exact events.", "small"))
         if a.get("ball"):

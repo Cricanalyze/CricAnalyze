@@ -67,3 +67,13 @@ User request: always show Overall Technique Score XX/100 when >=1 valid measurem
 - AI prompt: adds coaching{priority,why_it_matters,how_to_practice} and drill common_mistakes; forbids model names/bat-ball claims
 - Overlays thicker for new reports; ball marker label "BALL" (no decimals)
 - Tests: tests/test_report_upgrade.py (12) + existing score tests (12) pass; real clips in tests/media; QA seed tests/seed_qa_users.py; e2e tests/qa_e2e_reports.py
+
+## Slow-motion frame-by-frame analysis, any-length videos (2026-10-26)
+- action_window.py: clips <=12 s analysed in full; longer clips -> local frame-differencing (no hosted calls) finds the 10 s window with most movement; pose/ball/AI frames restricted to it, absolute timestamps/frame indices kept; report shows "Analysed m:ss–m:ss of the clip"
+- Pose dense sampling around the swing/release raised to POSE_DENSE_FPS=15 (was 8); AI gets 10 consecutive frames from ~1.4 s before to 1 s after the key moment (single video) and is told to mark unclear items unavailable
+- Upload duration limit removed (file-size limit kept); upload + pricing text say "any length"
+- Original upload never modified; H.264 playback copy (make_playback via imageio-ffmpeg, same fps/frame count) stored as media asset video_assets.playback_asset_id; /videos/{id}/url returns playback url + original_url; report has normal-speed player + "Original video" link; viewer speed buttons 0.1×/0.25×/0.5×/Normal (default 0.25×) with frame stepping
+- Timeouts: pose/ball 600 s each, job >= 1800 s
+- Fixes from test iteration: PDF v3.1 cache bust (dates/takeaways match web), angle-aware filming tip (side-on clips suggest front-on), progress dates use job time, de-duplicated poor-evidence tip, 2-decimal change values, tilt metrics on 0–60° scale
+- Tests: tests/test_action_window.py (3) + previous 24 pass; long clips tests/media/bat_long.mp4, bowl_long.mp4
+- Known: asyncio timeouts don't stop worker threads (a timed-out stage keeps running during retry)

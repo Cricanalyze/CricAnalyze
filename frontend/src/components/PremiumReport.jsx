@@ -93,6 +93,7 @@ const PhaseTimeline = ({ tl }) => {
 const AngleSection = ({ a, raw }) => (
   <div className="space-y-4" data-testid={`angle-${a.angle}`}>
     {a.angle && <div className="eyebrow">{a.angle} camera</div>}
+    {a.analysed_window && <p className="text-xs text-slate-400" data-testid="analysed-window">{a.analysed_window}</p>}
     {!a.pose_available && <Card data-testid="pose-unavailable"><p className="text-sm text-slate-300">Body tracking wasn't available for this clip, so only the coach's visual notes are shown.</p></Card>}
     <MetricBars mets={a.metrics} />
     <PhaseTimeline tl={a.timeline} />

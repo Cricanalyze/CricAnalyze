@@ -5,6 +5,7 @@ import pose_pipeline
 import ball_pipeline
 import score_engine
 import report_view
+import action_window
 import report_pdf as pdfgen
 from datetime import datetime
 from typing import List, Optional
@@ -41,14 +42,34 @@ def probe(path):
     return {"fps": round(fps, 2), "frames": int(n), "duration_s": round(n / fps, 2), "width": w, "height": h}
 
 
-def extract_frames(path, count):
+def make_playback(path):
+    """Browser-friendly H.264 copy for playback; the original upload is never modified."""
+    import subprocess, imageio_ffmpeg
+    out = path + ".play.mp4"
+    cmd = [imageio_ffmpeg.get_ffmpeg_exe(), "-y", "-loglevel", "error", "-i", path, "-map", "0:v:0", "-map", "0:a?", "-c:v", "libx264", "-preset", "veryfast", "-crf", "24",
+           "-pix_fmt", "yuv420p", "-vf", "scale='if(gt(iw,ih),min(1280,iw),-2)':'if(gt(iw,ih),-2,min(1280,ih))'", "-fps_mode", "passthrough", "-c:a", "aac", "-b:a", "96k",
+           "-movflags", "+faststart", out]
+    try:
+        subprocess.run(cmd, check=True, timeout=900)
+        with open(out, "rb") as f:
+            return f.read()
+    except Exception as e:
+        log.warning(f"playback transcode failed: {sanitize_error(e)}")
+        return None
+    finally:
+        if os.path.exists(out):
+            os.remove(out)
+
+
+def extract_frames(path, count, span=None):
     import cv2
     cap = cv2.VideoCapture(path)
     fps = cap.get(cv2.CAP_PROP_FPS) or 25
     n = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+    a, b = (max(0, int(span[0] * fps)), min(n, int(span[1] * fps) + 1)) if span else (0, n)
     out = []
     for i in range(count):
-        idx = int((i + 0.5) * n / count)
+        idx = a + int((i + 0.5) * (b - a) / count)
         cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
         ok, frame = cap.read()
         if not ok:
@@ -85,7 +106,6 @@ async def upload_video(file: UploadFile = File(...), analysis_type: str = Form(.
     if u["role"] not in STAFF and analysis_type not in ent["analysis_types"]:
         raise HTTPException(402, f"Your plan doesn't include {analysis_type} analysis. Choose a plan on the Pricing page.")
     max_mb = ent["max_file_mb"] or 100
-    max_dur = ent["max_duration_s"] or 30
     data = await file.read(max_mb * 1024 * 1024 + 1)
     if len(data) > max_mb * 1024 * 1024:
         raise HTTPException(413, f"File is larger than your plan limit of {max_mb} MB.")
@@ -98,8 +118,6 @@ async def upload_video(file: UploadFile = File(...), analysis_type: str = Form(.
         meta = await asyncio.to_thread(probe, tmp.name)
     if not meta:
         raise HTTPException(415, "We couldn't read this video. Try re-exporting it as MP4 (H.264).")
-    if meta["duration_s"] > max_dur + 0.5:
-        raise HTTPException(422, f"Video is {meta['duration_s']}s long; your plan allows up to {max_dur}s. Trim it and try again.")
     if min(meta["width"], meta["height"]) < 240:
         raise HTTPException(422, "Video resolution is too low (minimum 240p). Record at 480p or higher.")
     vid = uid()
@@ -134,7 +152,7 @@ async def video_url(vid: str, u=Depends(current_user)):
     v = await db.video_assets.find_one({"id": vid, "is_deleted": False})
     if not v or not await can_view_user_data(u, v["user_id"]):
         raise HTTPException(404, "Video not found.")
-    return {"url": sign_media(vid), "expires_in": 900}
+    return {"url": sign_media(v.get("playback_asset_id") or vid), "original_url": sign_media(vid), "expires_in": 900}
 
 
 @router.delete("/videos/{vid}")
@@ -274,7 +292,7 @@ async def load_report_for(u, job):
                     if p.get(k):
                         p[k.replace("_asset_id", "_url")] = sign_media(p[k])
             if b.get("video_id"):
-                b["video_url"] = sign_media(b["video_id"])
+                b["video_url"] = sign_media(b.get("playback_asset_id") or b["video_id"])
         for f in rep.get("frames", []):
             f["url"] = sign_media(f["asset_id"])
     return rep
@@ -319,7 +337,10 @@ async def get_job_authorized(u, job_id):
 
 async def history_for(rep):
     prev = await db.analysis_reports.find({"user_id": rep["user_id"], "analysis_type": rep["analysis_type"], "created_at": {"$lt": rep["created_at"]}},
-                                          {"_id": 0, "created_at": 1, "biomech.angle": 1, "biomech.status": 1, "biomech.metrics": 1, "biomech.score": 1}).sort("created_at", -1).to_list(10)
+                                          {"_id": 0, "job_id": 1, "created_at": 1, "biomech.angle": 1, "biomech.status": 1, "biomech.metrics": 1, "biomech.score": 1}).sort("created_at", -1).to_list(10)
+    jobs = {j["id"]: j["created_at"] for j in await db.analysis_jobs.find({"id": {"$in": [r["job_id"] for r in prev]}}, {"id": 1, "created_at": 1}).to_list(10)}
+    for r in prev:
+        r["created_at"] = jobs.get(r["job_id"], r["created_at"])
     return report_view.comparable_history(rep, prev)
 
 
@@ -441,6 +462,8 @@ Rules: describe ONLY what is visible in the frames. Never state speeds, forces, 
 If an area cannot be assessed (occlusion, camera angle, resolution, frame rate, too few frames), set its rating to null and say why.
 Separate 'observed' (directly visible) from 'inferred' (coaching interpretation). No medical diagnosis, no injury guarantees.
 Never name AI models, pipelines or confidence numbers in player-facing text. Do not claim the bat or ball was tracked or verified.
+The images are consecutive slow-motion frames from the key movement, in time order: compare neighbouring frames to judge movement, but only describe what is actually visible.
+If a movement, body part or metric cannot be seen clearly, say it is unavailable instead of guessing.
 Return ONLY valid JSON, no markdown."""
 
 
@@ -512,17 +535,17 @@ async def process_job(job):
     vids = await db.video_assets.find({"id": {"$in": job["video_ids"]}, "is_deleted": False}).to_list(5)
     if len(vids) != len(job["video_ids"]):
         raise PermanentError("A video for this analysis was deleted before processing.")
-    per = max(3, lim["frames_per_video"] if len(vids) == 1 else lim["frames_per_video"] // 2 + 1)
+    per = max(10 if len(vids) == 1 else 6, lim["frames_per_video"] if len(vids) == 1 else lim["frames_per_video"] // 2 + 1)
     frames_by_video, biomechs, phase_imgs = [], [], []
     for v in vids:
         data, _ = await asyncio.to_thread(get_object, v["storage_path"])
         with tempfile.NamedTemporaryFile(suffix=".vid") as tmp:
             tmp.write(data)
             tmp.flush()
-            fr = await asyncio.to_thread(extract_frames, tmp.name, per)
+            win = await asyncio.to_thread(action_window.find, tmp.name)
             await db.analysis_jobs.update_one({"id": job["id"]}, {"$set": {"progress": 25, "stage": "pose_estimation"}})
             try:
-                bio, pimgs = await asyncio.wait_for(asyncio.to_thread(pose_pipeline.analyse_video, tmp.name, job["analysis_type"], v["angle"], v["meta"]), 300)
+                bio, pimgs = await asyncio.wait_for(asyncio.to_thread(pose_pipeline.analyse_video, tmp.name, job["analysis_type"], v["angle"], v["meta"], win[:2]), 600)
             except Exception as e:
                 log.warning(f"pose pipeline failed job={job['id']} err={sanitize_error(e)}")
                 msg = str(e) if isinstance(e, pose_pipeline.PoseUnavailable) else "Pose-estimation service was unavailable or timed out."
@@ -530,11 +553,25 @@ async def process_job(job):
             await db.analysis_jobs.update_one({"id": job["id"]}, {"$set": {"progress": 40, "stage": "ball_tracking"}})
             tc = next((p["t"] for p in bio.get("phases", []) if p["key"] in ("downswing", "release") and p.get("t") is not None), None)
             try:
-                bio["ball"] = await asyncio.wait_for(asyncio.to_thread(ball_pipeline.analyse, tmp.name, v["meta"], bio.get("pose_track"), tc), 360)
+                bio["ball"] = await asyncio.wait_for(asyncio.to_thread(ball_pipeline.analyse, tmp.name, v["meta"], bio.get("pose_track"), tc if tc is not None else (win[0] + win[1]) / 2), 600)
             except Exception as e:
                 log.warning(f"ball pipeline failed job={job['id']} err={sanitize_error(e)}")
                 bio["ball"] = {"status": "unavailable", "version": ball_pipeline.BALL_VERSION, "provider": ball_pipeline.provider(),
                                "message": ball_pipeline.NOT_DETECTED, "error": str(e) if isinstance(e, ball_pipeline.BallUnavailable) else "Ball tracking failed or timed out."}
+            bio["analysed_window"] = {"t0": win[0], "t1": win[1], "method": win[2]}
+            span = (max(win[0], tc - 1.4), min(win[1], tc + 1.0)) if tc is not None else win[:2]
+            fr = await asyncio.to_thread(extract_frames, tmp.name, per, span)
+            await db.analysis_jobs.update_one({"id": job["id"]}, {"$set": {"progress": 50, "stage": "preparing_playback"}})
+            if not v.get("playback_asset_id"):
+                pb = await asyncio.to_thread(make_playback, tmp.name)
+                if pb:
+                    pid = uid()
+                    res = await asyncio.to_thread(put_object, f"{BUCKET_PREFIX}/playback/{v['user_id']}/{pid}.mp4", pb, "video/mp4")
+                    await db.media_assets.insert_one({"id": pid, "user_id": v["user_id"], "kind": "playback_video", "storage_path": res["path"],
+                                                      "content_type": "video/mp4", "is_deleted": False, "created_at": now()})
+                    await db.video_assets.update_one({"id": v["id"]}, {"$set": {"playback_asset_id": pid}})
+                    v["playback_asset_id"] = pid
+            bio["playback_asset_id"] = v.get("playback_asset_id")
         if not fr:
             raise PermanentError("We couldn't extract frames from the video.")
         frames_by_video.append((v, fr))
@@ -594,7 +631,7 @@ async def process_job(job):
 async def handle_job(job):
     lim = (await get_settings())["limits"]
     try:
-        await asyncio.wait_for(process_job(job), timeout=lim["job_timeout_s"])
+        await asyncio.wait_for(process_job(job), timeout=max(lim["job_timeout_s"], 1800))
     except Exception as e:
         permanent = isinstance(e, (PermanentError, json.JSONDecodeError, ValueError)) and not isinstance(e, asyncio.TimeoutError)
         reason = str(e) if isinstance(e, PermanentError) else ("The analysis timed out." if isinstance(e, asyncio.TimeoutError) else "The AI provider was unavailable or returned an unusable result.")

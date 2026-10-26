@@ -86,7 +86,7 @@ export const PlanGrid = () => {
           <div className="text-4xl font-display font-extrabold mt-4">{inr(p.price_inr)}<span className="text-sm text-slate-400 font-normal"> / {p.period_days} days</span></div>
           <p className="text-sm text-slate-400 mt-2 min-h-[40px]">{p.description}</p>
           <ul className="mt-5 space-y-2 text-sm">
-            {[`${p.credits} analysis credits`, `${p.analysis_types.join(" + ")} analysis`, `${p.videos_per_analysis} video(s) per analysis, up to ${p.max_duration_s}s each`, `${p.report_level} report`,
+            {[`${p.credits} analysis credits`, `${p.analysis_types.join(" + ")} analysis`, `${p.videos_per_analysis} video(s) per analysis, any length`, `${p.report_level} report`,
               p.multi_angle && "Multi-angle input", p.pdf_export && "PDF export", p.comparisons && "Before/after comparisons", p.ai_coach && "AI coach", p.training_planner && "Training planner"].filter(Boolean)
               .map((x) => <li key={x} className="flex gap-2"><CheckCircle2 size={16} className="text-[#10B981] shrink-0 mt-0.5" /><span className="capitalize-first">{x}</span></li>)}
           </ul>
