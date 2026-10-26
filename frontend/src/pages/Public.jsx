@@ -106,7 +106,7 @@ function MessageIcon(p) { return <Brain {...p} />; }
 
 export const HowItWorks = () => (<><Seo title="How it works" path="/how-it-works" description="Record, upload, get an AI-assisted report and practise with linked drills." />
   <Section><H2 h1 eyebrow="How it works" title="From clip to practice plan in four steps" />
-    <ol className="grid md:grid-cols-4 gap-5">{[["Record", "Film 5–30 seconds side-on or front-on, in good light, whole body in frame, 30fps or higher."], ["Upload", "Choose batting or bowling, label the camera angle and confirm consent. We check the file is a real, readable video."],
+    <ol className="grid md:grid-cols-4 gap-5">{[["Record", "Film side-on or front-on, in good light, whole body in frame, 30fps or higher. Any length works — we find the main shot or delivery."], ["Upload", "Choose batting or bowling, label the camera angle and confirm consent. We check the file is a real, readable video."],
       ["Analyse", "We sample frames and an AI vision model describes what it can see, with timestamps and confidence. Usually takes 1–3 minutes."], ["Practise", "Follow the linked drills, generate a training plan, and compare your next video with this one."]]
       .map(([t, d], i) => <li key={t} className="glass rounded-xl p-6"><div className="font-mono text-[#00B4D8] text-sm">0{i + 1}</div><h3 className="text-xl font-bold mt-2 mb-2">{t}</h3><p className="text-sm text-slate-400">{d}</p></li>)}</ol>
     <Card className="mt-10"><h3 className="font-semibold mb-2">What the AI can and can't do</h3><p className="text-sm text-slate-400 leading-relaxed">The current analysis uses a hosted AI vision model on sampled frames. It does not measure bat speed, ball speed, forces or exact joint angles, and it does not run calibrated 3D biomechanics. Duration, frame rate and resolution are measured from your file; everything else is a visual assessment marked with confidence. It is not medical advice.</p></Card>
@@ -122,7 +122,7 @@ export const About = () => (<><Seo title="About" path="/about" description="Cric
       <img src="/images/nets.jpg" alt="Cricket practice nets" className="rounded-2xl h-80 w-full object-cover" /></div>
   </Section></>);
 
-const FAQS = [["What videos work best?", "5–30 second clips filmed side-on or front-on, whole body visible, steady camera, good light, 480p or higher. MP4, MOV and WEBM are supported."],
+const FAQS = [["What videos work best?", "Clips of any length filmed side-on or front-on, whole body visible, steady camera, good light, 480p or higher. For long clips we find the main shot or delivery and analyse it frame by frame. MP4, MOV and WEBM are supported."],
   ["Is the analysis done by a real AI model?", "Yes. Frames from your video are analysed by a hosted AI vision model. If the AI service is unavailable the job fails clearly and your credit is refunded — we never show made-up results."],
   ["Does it measure bat speed or bowling speed?", "No. Speeds, forces and exact angles need calibrated equipment. Reports show only visual observations with confidence levels."],
   ["Who can see my videos?", "Only you, unless you are in an academy and explicitly turn on report sharing. Videos are stored privately and served through short-lived links."],

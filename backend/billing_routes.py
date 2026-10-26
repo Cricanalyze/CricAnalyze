@@ -13,9 +13,9 @@ PLAN_DEFAULTS = dict(currency="INR", period_days=30, credits=5, videos_per_analy
                      ai_coach=True, training_planner=True, academy_features=False, active=True, billing="monthly", sort=10, description="")
 SEED_PLANS = [
     {"slug": "batting-monthly", "name": "Batting", "product": "batting", "price_inr": 499, "analysis_types": ["batting"], "sort": 1,
-     "description": "One video up to 30 seconds per batting analysis."},
+     "description": "One video of any length per batting analysis."},
     {"slug": "bowling-monthly", "name": "Bowling", "product": "bowling", "price_inr": 599, "analysis_types": ["bowling"], "sort": 2,
-     "videos_per_analysis": 3, "multi_angle": True, "description": "Up to three angles (30s each) per bowling analysis."},
+     "videos_per_analysis": 3, "multi_angle": True, "description": "Up to three angles of any length per bowling analysis."},
     {"slug": "combined-monthly", "name": "All-Rounder", "product": "combined", "price_inr": 899, "analysis_types": ["batting", "bowling"],
      "credits": 10, "videos_per_analysis": 3, "multi_angle": True, "report_level": "advanced", "sort": 3,
      "description": "Batting and bowling with advanced coaching reports."},

@@ -1,0 +1,32 @@
+{
+  "summary": "Frontend-only, read-only testing of long-video support, slow-motion viewer, normal-speed/original video playback, bowling long-clip report, upload/pricing copy and regression. Nearly everything works. One copy problem: the pricing plan cards still say '30 seconds' / '30s each', which contradicts the new 'any length' line.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Pricing page plan cards (/pricing)", "issues": [
+        "Batting card description reads 'One video up to 30 seconds per batting analysis.' and Bowling card reads 'Up to three angles (30s each) per bowling analysis.' This contradicts the '... per analysis, any length' bullet on the same cards. Source: plan description strings in /app/backend/billing_routes.py lines 16 and 18 (PLAN_DEFAULTS seed). Existing plan docs in MongoDB probably need updating too, because the descriptions are served from the DB."
+      ]},
+      {"screen": "Landing 'How it works' + FAQ (Public.jsx lines 109, 125)", "issues": [
+        "'Film 5–30 seconds...' and FAQ '5–30 second clips...' are still there. This is fine as filming advice, but it could make users think there is a limit. Consider rewording it, e.g. 'any length; we find the main shot'."
+      ]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Update the Batting/Bowling plan descriptions in billing_routes.py PLAN_DEFAULTS and in the existing MongoDB plan documents to remove '30 seconds' / '30s each'",
+    "Optional: reword the landing page 'Film 5–30 seconds' step and the FAQ so they read as advice, not a limit",
+    "Optional: max_duration_s is still in the admin plan editor (Admin.jsx shows '30s' in the plan table) even though duration isn't enforced any more. Hide it or relabel it to avoid confusing admins"
+  ],
+  "critical_code_review_comments": [
+    "The viewer and the report-video use the same playback asset (130697...). The original-video-link points to a different asset (ffae40...). Both return 206 video/mp4. This is the intended behaviour.",
+    "AnalysisViewer speed testids come from r*100; 0.1*100 === 10 in JS, so 'viewer-speed-10' works, but this relies on floating-point luck. Hardcoded testids would be safer."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (skipped)", "frontend": "95%"},
+  "seed_data_creation": "none",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Verified: 80cff66c... batting 77 s clip shows analysed-window 'Analysed 0:36–0:46 of the clip, the part with the most movement.'; phase timestamps are absolute (36.87, 43.53, 45.23, 45.7, 45.97 s); 0.25x is selected by default; clicking 0.1/0.5/Normal/0.25 sets video.playbackRate correctly and highlights the button; viewer shows the expected H.264 'can't play' message in Playwright; report-video caption is 'Normal-speed playback. Use the analysis viewer above for slow motion.'; original link returns 206. Bowling e047c8d5... shows all 5 bowling phases, analysed-window 0:31–0:41, score 87 Provisional, progress-comparison present. Upload desc says 'any length', no 'Ns each'. Regression 971eb687... renders viewer/coaching/drills; PDF downloads (~930 KB). No YOLO26/Ultralytics/RTMPose/YOLOX text on any page checked."
+}
