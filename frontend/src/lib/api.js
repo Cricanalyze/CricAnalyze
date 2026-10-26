@@ -15,7 +15,8 @@ export const errMsg = (e) => {
 };
 export const media = (p) => (p ? `${BACKEND}${p}` : null);
 export const csrf = () => (document.cookie.match(/(?:^|; )ca_csrf=([^;]+)/) || [])[1] || "";
-export const fmtDate = (d) => (d ? new Date(d).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "—");
+export const fmtDate = (d) => (d ? new Date(d).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "Asia/Kolkata" }) : "—");
+export const fmtDateTime = (d) => (d ? `${new Date(d).toLocaleString("en-IN", { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" })} IST` : "—");
 export const inr = (n) => `₹${Number(n || 0).toLocaleString("en-IN")}`;
 export const download = async (path, name) => {
   const r = await api.get(path, { responseType: "blob" });

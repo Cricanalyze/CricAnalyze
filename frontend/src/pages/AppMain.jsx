@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
-import { UploadCloud, Video, FileDown, RefreshCw, Trash2, AlertTriangle, History, Sparkles, MessageSquare } from "lucide-react";
+import { UploadCloud, Video, FileDown, RefreshCw, Trash2, AlertTriangle, History, Sparkles, MessageSquare, CheckCircle2 } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -10,10 +10,11 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { api, errMsg, fmtDate, media, download } from "@/lib/api";
+import { api, errMsg, fmtDate, fmtDateTime, media, download } from "@/lib/api";
 import { useAuth, isStaff } from "@/context/AuthContext";
 import { PageHeader, Empty, Card, Badge, statusTone, Seo } from "@/components/Common";
 import { Biomech } from "@/components/Biomech";
+import { PremiumReport } from "@/components/PremiumReport";
 
 export const Dashboard = () => {
   const { user, ent } = useAuth();
@@ -39,11 +40,14 @@ export const Dashboard = () => {
 export const JobList = ({ jobs }) => (
   <div className="glass rounded-xl divide-y divide-white/5" data-testid="job-list">
     {jobs.map((j) => <Link key={j.id} to={`/app/analyses/${j.id}`} className="flex items-center justify-between gap-3 p-4 hover:bg-white/5 transition-colors" data-testid={`job-row-${j.id}`}>
-      <div className="min-w-0"><div className="flex gap-2 items-center"><Badge tone="teal">{j.analysis_type}</Badge><span className="text-sm text-slate-400">{fmtDate(j.created_at)}</span>{j.video_ids.length > 1 && <Badge>{j.video_ids.length} angles</Badge>}</div>
+      <div className="min-w-0"><div className="flex gap-2 items-center"><Badge tone="teal">{j.analysis_type}</Badge><span className="text-sm text-slate-400">{fmtDateTime(j.created_at)}</span>{j.video_ids.length > 1 && <Badge>{j.video_ids.length} angles</Badge>}</div>
         <p className="text-sm text-slate-300 mt-1 truncate">{j.report?.summary || j.failure_reason || "Processing…"}</p></div>
-      <Badge tone={statusTone(j.status)}>{j.status}</Badge></Link>)}
+      <div className="flex items-center gap-2 shrink-0">{j.report?.technique_score && <ScoreChip s={j.report.technique_score} />}<Badge tone={statusTone(j.status)}>{j.status}</Badge></div></Link>)}
   </div>
 );
+
+const ScoreChip = ({ s }) => s.value == null ? <span className="text-xs text-slate-500" data-testid="list-score-unavailable">No score</span>
+  : <span className="text-sm font-mono" data-testid="list-score"><b>{s.value}</b><span className="text-slate-500">/100</span>{s.status === "provisional" && <span className="text-[10px] text-amber-300 ml-1">provisional</span>}</span>;
 
 const ANGLES = [["side_on", "Side-on"], ["front_on", "Front-on"], ["behind", "From behind"], ["other", "Other"]];
 
@@ -64,6 +68,18 @@ const ConsentGate = ({ status, reload }) => {
         <Button onClick={async () => { try { await api.post("/account/guardian/confirm", { code }); toast.success("Guardian consent recorded."); reload(); } catch (e) { toast.error(errMsg(e)); } }} data-testid="guardian-confirm-btn">Confirm</Button></div>}</Card>;
   return null;
 };
+
+const CHECKS = {
+  batting: ["Whole player, feet and bat in frame", "Good, even light — no strong backlight", "Phone steady at hip height (tripod or wall)", "Side-on (8–12 m) or front-on from behind the bowler",
+    "Bat and ball visible where possible", "Start 2 s before the stride, stop 2 s after the follow-through", "No zooming, blur or people in front"],
+  bowling: ["Whole bowler in frame from last strides to follow-through", "Good, even light — no strong backlight", "Phone steady at hip height (tripod or wall)", "Side-on (10–15 m) or front-on from behind the stumps",
+    "Bowling arm and ball visible where possible", "Include the last few run-up strides and full follow-through", "No zooming, blur or people in front"],
+};
+
+const FilmingChecklist = ({ type }) => (
+  <Card data-testid="filming-checklist"><h3 className="font-semibold mb-2">Before you upload</h3>
+    <ul className="text-sm text-slate-300 space-y-1.5">{CHECKS[type].map((c) => <li key={c} className="flex gap-2"><CheckCircle2 size={16} className="text-[#10B981] shrink-0 mt-0.5" />{c}</li>)}</ul>
+    <p className="text-xs text-slate-500 mt-3">30–60 fps at 720p or higher gives the most measurements.</p></Card>);
 
 export const Upload = () => {
   const { user, ent } = useAuth();
@@ -133,9 +149,7 @@ export const Upload = () => {
               <Button size="sm" variant="ghost" onClick={() => setItems(items.filter((_, j) => j !== i))} disabled={busy} data-testid={`remove-video-${i}`}><Trash2 size={14} className="mr-1" />Remove</Button></div></Card>)}
         </div>
         <div className="lg:col-span-2 space-y-4">
-          <Card><h3 className="font-semibold mb-2">Camera placement tips</h3><ul className="text-sm text-slate-400 space-y-1.5 list-disc pl-5">
-            <li>Side-on: camera level with the hips, 8–12 m away, full body in frame.</li><li>Front-on: behind the bowler's arm / straight down the pitch.</li>
-            <li>Steady phone, good light, 30fps or higher, 480p+.</li><li>For multi-angle bowling, record the same delivery or similar deliveries per angle.</li></ul></Card>
+          <FilmingChecklist type={type} />
           <Input placeholder={type === "batting" ? "Shot type (e.g. front-foot drive, defence, pull)" : "Delivery type (e.g. pace, off-spin)"} maxLength={60} value={shot} onChange={(e) => setShot(e.target.value)} data-testid="shot-type-input" />
           <Textarea placeholder="Optional note for the analyst (e.g. 'working on my cover drive')" maxLength={300} value={notes} onChange={(e) => setNotes(e.target.value)} data-testid="analysis-notes" />
           <label className="flex gap-2 items-start text-sm"><Checkbox checked={consent} onCheckedChange={(v) => setConsent(!!v)} data-testid="consent-checkbox" />
@@ -179,19 +193,22 @@ const Timeline = () => {
   const [type, setType] = useState("batting");
   const [d, setD] = useState(null);
   const [err, setErr] = useState(null);
-  const [area, setArea] = useState("avg");
+  const [area, setArea] = useState("technique");
   useEffect(() => { setErr(null); api.get("/timeline", { params: { type } }).then(({ data }) => setD(data)).catch((e) => setErr(errMsg(e))); }, [type]);
   const areas = d ? [...new Set(d.reports.flatMap((r) => Object.keys(r.scores || {})))] : [];
+  const tech = area === "technique";
   const rows = (d?.reports || []).map((r) => {
     const vals = Object.values(r.scores || {}).map((s) => s?.rating).filter((x) => typeof x === "number");
-    return { date: fmtDate(r.created_at), value: area === "avg" ? (vals.length ? +(vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2) : null) : r.scores?.[area]?.rating ?? null };
+    const ts = r.technique_score || {};
+    return { date: fmtDate(r.created_at), status: ts.status, value: tech ? ts.value ?? null : area === "avg" ? (vals.length ? +(vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2) : null) : r.scores?.[area]?.rating ?? null };
   });
   return (<div>
     <div className="flex gap-2 mb-4"><Select value={type} onValueChange={setType}><SelectTrigger className="w-40" data-testid="timeline-type"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="batting">Batting</SelectItem><SelectItem value="bowling">Bowling</SelectItem></SelectContent></Select>
-      <Select value={area} onValueChange={setArea}><SelectTrigger className="w-56" data-testid="timeline-area"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="avg">Average of assessable areas</SelectItem>{areas.map((a) => <SelectItem key={a} value={a}>{a.replace(/_/g, " ")}</SelectItem>)}</SelectContent></Select></div>
+      <Select value={area} onValueChange={setArea}><SelectTrigger className="w-56" data-testid="timeline-area"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="technique">Technique score (0–100)</SelectItem><SelectItem value="avg">Average AI visual rating</SelectItem>{areas.map((a) => <SelectItem key={a} value={a}>{a.replace(/_/g, " ")}</SelectItem>)}</SelectContent></Select></div>
     {err ? <Empty title="Timeline unavailable" desc={err} testid="timeline-locked" /> : !d ? "Loading…" : d.reports.length === 0 ? <Empty title="No reports yet" desc="Your first completed analysis will become your baseline." testid="timeline-empty" /> :
-      <Card><p className="text-xs text-slate-400 mb-3">{d.baseline ? "Baseline only — add another analysis to see change over time." : "AI visual ratings (1–5). Gaps mean the area wasn't assessable."}</p>
-        <div className="h-72" data-testid="timeline-chart"><ResponsiveContainer><LineChart data={rows}><CartesianGrid stroke="#1e293b" /><XAxis dataKey="date" stroke="#64748b" fontSize={12} /><YAxis domain={[0, 5]} stroke="#64748b" fontSize={12} /><Tooltip contentStyle={{ background: "#1C2541", border: "none" }} /><Line dataKey="value" stroke="#10B981" strokeWidth={2} connectNulls={false} dot /></LineChart></ResponsiveContainer></div></Card>}
+      <Card><p className="text-xs text-slate-400 mb-3">{d.baseline ? "Baseline only — add another analysis to see change over time." : tech ? "Measured technique score. Hollow dots are provisional scores (based on fewer measurements); gaps mean no score could be calculated." : "AI visual ratings (1–5). Gaps mean the area wasn't assessable."}</p>
+        <div className="h-72" data-testid="timeline-chart"><ResponsiveContainer><LineChart data={rows}><CartesianGrid stroke="#1e293b" /><XAxis dataKey="date" stroke="#64748b" fontSize={12} /><YAxis domain={tech ? [0, 100] : [0, 5]} stroke="#64748b" fontSize={12} /><Tooltip contentStyle={{ background: "#1C2541", border: "none" }} formatter={(val, n, p) => [tech && p.payload.status === "provisional" ? `${val} (provisional)` : val, tech ? "Score" : "Rating"]} />
+          <Line dataKey="value" stroke="#10B981" strokeWidth={2} connectNulls={false} dot={(p) => <circle key={p.index} cx={p.cx} cy={p.cy} r={4} stroke="#10B981" strokeWidth={2} fill={tech && p.payload.status === "provisional" ? "#0B132B" : "#10B981"} />} /></LineChart></ResponsiveContainer></div></Card>}
   </div>);
 };
 
@@ -240,7 +257,7 @@ export const Report = () => {
   const genPlan = async () => { try { toast.info("Creating plan…"); await api.post("/training/plans/generate", { report_id: r.id }); nav("/app/training"); } catch (e) { toast.error(errMsg(e)); } };
   return (
     <div><Seo title="Report" path={`/app/analyses/${id}`} noindex />
-      <PageHeader eyebrow={`${job.analysis_type} analysis · ${fmtDate(job.created_at)}`} title={r ? "Technique report" : "Analysis in progress"}>
+      <PageHeader eyebrow={r ? `${job.analysis_type} analysis` : `${job.analysis_type} analysis · ${fmtDateTime(job.created_at)}`} title={r ? "Technique report" : "Analysis in progress"}>
         {r && <><Button variant="secondary" onClick={() => download(`/analyses/${id}/pdf`, `cricanalyze-${id.slice(0, 8)}.pdf`).catch((e) => toast.error(e?.response?.status === 402 ? "PDF export isn't included in your plan." : "PDF failed"))} data-testid="report-pdf-btn"><FileDown size={16} className="mr-1" />PDF</Button>
           <Button variant="secondary" onClick={genPlan} data-testid="report-plan-btn"><Sparkles size={16} className="mr-1" />Training plan</Button>
           <Button variant="secondary" asChild data-testid="report-coach-btn"><Link to="/app/coach"><MessageSquare size={16} className="mr-1" />Ask coach</Link></Button></>}
@@ -248,30 +265,23 @@ export const Report = () => {
       {!r && <Card className="mb-6" data-testid="job-status-card"><div className="flex items-center gap-3 mb-3"><Badge tone={statusTone(job.status)}>{job.status}</Badge><span className="text-sm text-slate-400">{job.stage?.replace(/_/g, " ")}</span></div>
         {job.status === "failed" ? <div><p className="text-red-300 flex gap-2 items-start"><AlertTriangle size={18} />{job.failure_reason}</p><p className="text-xs text-slate-500 mt-1">{job.credit_state === "refunded" ? "Your credit was refunded." : ""}</p><Button className="mt-4" onClick={retry} data-testid="retry-btn"><RefreshCw size={16} className="mr-1" />Retry</Button></div>
           : <><Progress value={job.progress} /><p className="text-xs text-slate-500 mt-2">Usually 1–3 minutes. You can leave this page — we'll email you when it's ready.{job.last_error ? ` Retrying after: ${job.last_error}` : ""}</p></>}</Card>}
-      {r && <div className="mb-6"><Biomech r={r} /></div>}
+      {r && <div className="mb-6">{r.view ? <PremiumReport r={r} /> : <Biomech r={r} />}</div>}
       {r && <div className="grid lg:grid-cols-5 gap-6" data-testid="report-view">
         <div className="lg:col-span-3 space-y-5">
           {videoUrl && <video src={videoUrl} controls className="w-full rounded-xl bg-black aspect-video" data-testid="report-video" />}
-          <Card><div className="flex justify-between mb-2"><h3 className="font-semibold">Summary</h3><Badge tone={{ high: "green", medium: "amber", low: "red" }[r.overall_confidence]}>confidence: {r.overall_confidence || "n/a"}</Badge></div><p className="text-slate-300 leading-relaxed" data-testid="report-summary">{r.summary}</p></Card>
-          <Card><h3 className="font-semibold mb-3">Evidence frames</h3><div className="grid grid-cols-3 sm:grid-cols-4 gap-2">{r.frames.map((f) => <button key={f.index} onClick={() => setFrame(f)} className={`relative rounded-md overflow-hidden border ${frame?.index === f.index ? "border-[#10B981]" : "border-transparent"}`} data-testid={`frame-${f.index}`}>
-            <img src={media(f.url)} alt={`Frame at ${f.t}s, ${f.angle}`} className="aspect-video object-cover w-full" /><span className="absolute bottom-0 left-0 text-[10px] font-mono bg-black/70 px-1">#{f.index} · {f.t}s</span></button>)}</div>
-            {frame && <img src={media(frame.url)} alt="Selected frame" className="mt-3 rounded-lg w-full" />}</Card>
-          <Card><h3 className="font-semibold mb-3">Observations</h3><div className="space-y-3">{(r.observations || []).map((o, i) => <div key={i} className="border-l-2 border-[#00B4D8]/40 pl-3" data-testid={`observation-${i}`}>
-            <div className="flex flex-wrap gap-2 items-center text-xs"><span className="font-semibold capitalize text-sm">{o.area?.replace(/_/g, " ")}</span><Badge tone={o.evidence_type === "observed" ? "teal" : "amber"}>{o.evidence_type}</Badge><Badge>{o.confidence}</Badge>
-              {o.timestamp_s != null && <button className="font-mono text-[#00B4D8]" onClick={() => setFrame(r.frames.find((f) => f.index === o.image_index) || null)}>t={o.timestamp_s}s</button>}</div>
-            <p className="text-sm text-slate-300 mt-1">{o.observation}</p></div>)}</div></Card>
+          <Card><h3 className="font-semibold mb-1">Frame-by-frame notes</h3><p className="text-xs text-slate-500 mb-3">AI interpretation of sampled frames. Tap a time to see the frame.</p>
+            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">{r.frames.map((f) => <button key={f.index} onClick={() => setFrame(f)} className={`relative rounded-md overflow-hidden border ${frame?.index === f.index ? "border-[#10B981]" : "border-transparent"}`} data-testid={`frame-${f.index}`}>
+              <img src={media(f.url)} alt={`Frame at ${f.t}s`} className="aspect-video object-cover w-full" /><span className="absolute bottom-0 left-0 text-[10px] font-mono bg-black/70 px-1">{f.t}s</span></button>)}</div>
+            {frame && <img src={media(frame.url)} alt="Selected frame" className="mt-3 rounded-lg w-full" />}
+            <div className="space-y-3 mt-4">{(r.observations || []).map((o, i) => <div key={i} className="border-l-2 border-[#00B4D8]/40 pl-3" data-testid={`observation-${i}`}>
+              <div className="flex flex-wrap gap-2 items-center text-xs"><span className="font-semibold capitalize text-sm">{o.area?.replace(/_/g, " ")}</span><Badge tone={o.evidence_type === "observed" ? "teal" : "amber"}>{o.evidence_type === "observed" ? "Seen in video" : "Coach inference"}</Badge>
+                {o.timestamp_s != null && <button className="font-mono text-[#00B4D8]" onClick={() => setFrame(r.frames.find((f) => f.index === o.image_index) || null)}>{o.timestamp_s}s</button>}</div>
+              <p className="text-sm text-slate-300 mt-1">{o.observation}</p></div>)}</div></Card>
         </div>
         <div className="lg:col-span-2 space-y-5">
-          <Card><h3 className="font-semibold mb-3">Area ratings (AI visual, 1–5)</h3>{Object.entries(r.scores || {}).map(([k, s]) => <div key={k} className="mb-2.5"><div className="flex justify-between text-xs"><span className="capitalize">{k.replace(/_/g, " ")}</span><span className="text-slate-400">{s?.rating ? `${s.rating}/5 · ${s.confidence}` : "Not assessable"}</span></div>
-            <div className="h-1.5 bg-white/10 rounded mt-1"><div className="h-full rounded bg-[#10B981]" style={{ width: s?.rating ? `${s.rating * 20}%` : 0 }} /></div>{s?.note && <p className="text-[11px] text-slate-500 mt-0.5">{s.note}</p>}</div>)}</Card>
-          <Card><h3 className="font-semibold mb-2 text-[#10B981]">Strengths</h3><ul className="text-sm text-slate-300 list-disc pl-5 space-y-1">{(r.strengths || []).map((s) => <li key={s}>{s}</li>)}</ul>
-            <h3 className="font-semibold mt-4 mb-2 text-amber-300">Areas to improve</h3><ul className="text-sm text-slate-300 list-disc pl-5 space-y-1">{(r.improvements || []).map((s) => <li key={s}>{s}</li>)}</ul></Card>
-          <Card><h3 className="font-semibold mb-3">Recommended drills</h3>{(r.drills || []).map((d) => <div key={d.name} className="mb-3"><div className="font-medium text-sm">{d.name} <span className="text-xs text-slate-500">· {d.sets_reps}</span></div><p className="text-xs text-slate-400">{d.how_to}</p>{d.linked_area && <Badge tone="teal">for {d.linked_area.replace(/_/g, " ")}</Badge>}</div>)}</Card>
-          {r.practice_plan && <Card><h3 className="font-semibold mb-3">Practice plan</h3>{r.practice_plan.map((p, i) => <div key={i} className="text-sm flex justify-between border-b border-white/5 py-1.5"><span>{p.day}: {p.focus}</span><span className="text-slate-500">{p.duration_min}m</span></div>)}</Card>}
-          {r.per_angle?.length > 0 && <Card><h3 className="font-semibold mb-2">Per-angle visibility</h3>{r.per_angle.map((a, i) => <p key={i} className="text-sm"><Badge tone={{ good: "green", partial: "amber", poor: "red" }[a.visibility]}>{a.angle}: {a.visibility}</Badge> <span className="text-slate-400">{a.note}</span></p>)}</Card>}
-          <Card><h3 className="font-semibold mb-2">Limitations & processing</h3><ul className="text-xs text-slate-400 list-disc pl-5 space-y-1">{(r.limitations || []).map((l) => <li key={l}>{l}</li>)}<li>{r.measured?.note}</li></ul>
-            <div className="text-xs text-slate-500 mt-3 font-mono">{r.model}<br />{r.video_meta.map((v) => `${v.angle}: ${v.duration_s}s · ${v.fps}fps · ${v.width}×${v.height}`).join(" | ")}</div>
-            {r.locked?.length > 0 && <p className="text-xs text-amber-300 mt-2" data-testid="report-locked">Upgrade to unlock: {r.locked.join(", ")}</p>}</Card>
+          <Card><h3 className="font-semibold mb-1">Visual ratings by area</h3><p className="text-xs text-slate-500 mb-3">AI visual impressions (1–5), separate from the measured technique score.</p>{Object.entries(r.scores || {}).filter(([, s]) => s?.rating).map(([k, s]) => <div key={k} className="mb-2.5"><div className="flex justify-between text-xs"><span className="capitalize">{k.replace(/_/g, " ")}</span><span className="text-slate-400">{s.rating}/5</span></div>
+            <div className="h-1.5 bg-white/10 rounded mt-1"><div className="h-full rounded bg-[#00B4D8]" style={{ width: `${s.rating * 20}%` }} /></div>{s?.note && <p className="text-[11px] text-slate-500 mt-0.5">{s.note}</p>}</div>)}</Card>
+          {r.locked?.length > 0 && <Card><p className="text-xs text-amber-300" data-testid="report-locked">Upgrade to unlock: {r.locked.join(", ")}</p></Card>}
         </div>
       </div>}
     </div>

@@ -423,13 +423,13 @@ def quality(seq, meta, angle_label):
 
 def overlay(img, kp):
     out = img.copy()
-    t = max(2, out.shape[0] // 300)
+    t = max(3, out.shape[0] // 160)
     for a, b in EDGES:
         if kp[a][2] >= KP_LOW and kp[b][2] >= KP_LOW:
             cv2.line(out, (int(kp[a][0]), int(kp[a][1])), (int(kp[b][0]), int(kp[b][1])), (216, 180, 0), t, cv2.LINE_AA)
     for x, y, s in kp:
         if s >= KP_LOW:
-            cv2.circle(out, (int(x), int(y)), t + 2, (129, 185, 16) if s >= KP_OK else (36, 191, 251), -1, cv2.LINE_AA)
+            cv2.circle(out, (int(x), int(y)), t + 3, (129, 185, 16) if s >= KP_OK else (36, 191, 251), -1, cv2.LINE_AA)
     return out
 
 

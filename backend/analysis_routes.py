@@ -4,6 +4,7 @@ import numpy as np
 import pose_pipeline
 import ball_pipeline
 import score_engine
+import report_view
 import report_pdf as pdfgen
 from datetime import datetime
 from typing import List, Optional
@@ -262,6 +263,10 @@ def filter_report(rep, level):
 async def load_report_for(u, job):
     rep = await db.analysis_reports.find_one({"job_id": job["id"]}, {"_id": 0})
     if rep:
+        for b in rep.get("biomech") or []:
+            sc = b.get("score") or {}
+            if sc.get("components") and sc.get("value") is None and sc.get("provisional_value") is None:
+                sc["provisional_value"] = score_engine.display(sc)["value"]
         rep = filter_report(rep, job.get("report_level", "basic"))
         for b in rep.get("biomech") or []:
             for p in b.get("phases", []):
@@ -295,9 +300,13 @@ async def list_analyses(type: Optional[str] = None, date_from: Optional[str] = N
             q["created_at"]["$lte"] = datetime.fromisoformat(date_to + "T23:59:59+00:00")
     jobs = await db.analysis_jobs.find(q, {"_id": 0}).sort("created_at", -1).to_list(200)
     reps = {r["job_id"]: r for r in await db.analysis_reports.find({"job_id": {"$in": [j["id"] for j in jobs]}},
-                                                                    {"_id": 0, "job_id": 1, "id": 1, "summary": 1, "overall_confidence": 1, "scores": 1}).to_list(200)}
+                                                                    {"_id": 0, "job_id": 1, "id": 1, "summary": 1, "overall_confidence": 1, "scores": 1, "biomech.score": 1}).to_list(200)}
     for j in jobs:
-        j["report"] = reps.get(j["id"])
+        r = reps.get(j["id"])
+        if r:
+            r["technique_score"] = report_view.list_summary(r)
+            r.pop("biomech", None)
+        j["report"] = r
     return jobs
 
 
@@ -308,10 +317,26 @@ async def get_job_authorized(u, job_id):
     return job
 
 
+async def history_for(rep):
+    prev = await db.analysis_reports.find({"user_id": rep["user_id"], "analysis_type": rep["analysis_type"], "created_at": {"$lt": rep["created_at"]}},
+                                          {"_id": 0, "created_at": 1, "biomech.angle": 1, "biomech.status": 1, "biomech.metrics": 1, "biomech.score": 1}).sort("created_at", -1).to_list(10)
+    return report_view.comparable_history(rep, prev)
+
+
+async def attach_view(u, job, rep):
+    owner = await db.users.find_one({"id": job["user_id"]}, {"full_name": 1})
+    hist = await history_for(rep) if job.get("report_level") != "basic" or u["role"] in STAFF else None
+    rep["view"] = report_view.build(rep, (owner or {}).get("full_name"), hist, u["role"] in STAFF)
+    rep["view"]["header"]["date"] = report_view.ist(job["created_at"])
+    return rep
+
+
 @router.get("/analyses/{job_id}")
 async def get_analysis(job_id: str, u=Depends(current_user)):
     job = await get_job_authorized(u, job_id)
     job["report"] = await load_report_for(u, job)
+    if job["report"]:
+        await attach_view(u, job, job["report"])
     job["videos"] = await db.video_assets.find({"id": {"$in": job["video_ids"]}}, {"_id": 0, "storage_path": 0}).to_list(5)
     if job["report"] and u["id"] == job["user_id"] and not job.get("reviewed_at"):
         await db.analysis_jobs.update_one({"id": job_id}, {"$set": {"reviewed_at": now()}})
@@ -359,6 +384,7 @@ async def report_pdf(job_id: str, u=Depends(current_user)):
     if not rep:
         raise HTTPException(409, "The report isn't ready yet.")
     owner = await db.users.find_one({"id": job["user_id"]})
+    await attach_view({**u, "role": "player"}, job, rep)
     pdf = await pdfgen.get_or_build(rep, job, owner)
     return Response(pdf, media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename=cricanalyze-{job_id[:8]}.pdf"})
 
@@ -375,7 +401,10 @@ async def timeline(type: str = "batting", player_id: Optional[str] = None, u=Dep
     if u["role"] not in STAFF and not (await entitlements(owner))["timeline"] and owner == u["id"]:
         raise HTTPException(402, "The player timeline isn't included in your plan.")
     reps = await db.analysis_reports.find({"user_id": owner, "analysis_type": type}, {"_id": 0, "job_id": 1, "created_at": 1, "scores": 1,
-                                                                                     "summary": 1, "overall_confidence": 1}).sort("created_at", 1).to_list(200)
+                                                                                     "summary": 1, "overall_confidence": 1, "biomech.score": 1}).sort("created_at", 1).to_list(200)
+    for r in reps:
+        r["technique_score"] = report_view.list_summary(r)
+        r.pop("biomech", None)
     return {"reports": reps, "baseline": len(reps) <= 1}
 
 
@@ -411,6 +440,7 @@ SYSTEM = """You are an experienced cricket technique analyst. You are shown fram
 Rules: describe ONLY what is visible in the frames. Never state speeds, forces, exact joint angles or any number you cannot measure.
 If an area cannot be assessed (occlusion, camera angle, resolution, frame rate, too few frames), set its rating to null and say why.
 Separate 'observed' (directly visible) from 'inferred' (coaching interpretation). No medical diagnosis, no injury guarantees.
+Never name AI models, pipelines or confidence numbers in player-facing text. Do not claim the bat or ball was tracked or verified.
 Return ONLY valid JSON, no markdown."""
 
 
@@ -445,6 +475,8 @@ Return JSON with keys:
 "observations": list of {{"area", "observation", "timestamp_s", "image_index", "evidence_type": "observed"|"inferred", "confidence"}},
 "strengths": list of strings, "improvements": list of strings,
 "drills": list of {{"name","purpose","how_to","sets_reps","linked_area"}} (3-5),
+"drills" items may also include "common_mistakes": short string,
+"coaching": {{"priority": the single most important thing to improve (1 sentence), "why_it_matters": 1-2 sentences, "how_to_practice": 1-2 sentences}},
 "practice_plan": list of {{"day","focus","duration_min"}} for one week,
 "per_angle": list of {{"angle","visibility":"good"|"partial"|"poor","note"}},
 "limitations": list of strings about what could not be reliably assessed,
@@ -545,7 +577,7 @@ async def process_job(job):
            "coach_summary": result.get("coach_summary"),
            "video_meta": [{"video_id": v["id"], "angle": v["angle"], **v["meta"]} for v in vids],
            "measured": {"note": "Duration, FPS and resolution are measured from the file. Joint angles come only from the pose model (2D image plane). Bat speed, ball speed and forces are not measured." if measured else "Duration, FPS and resolution are measured from the file. No pose measurements were available for this report."},
-           **{k: result.get(k) for k in ("summary", "scores", "observations", "strengths", "improvements", "drills", "practice_plan",
+           **{k: result.get(k) for k in ("summary", "scores", "observations", "strengths", "improvements", "drills", "practice_plan", "coaching",
                                          "per_angle", "limitations", "overall_confidence")}}
     await db.analysis_reports.insert_one(rep)
     await db.analysis_jobs.update_one({"id": job["id"]}, {"$set": {"status": "completed", "progress": 100, "stage": "done", "completed_at": now(),

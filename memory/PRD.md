@@ -57,3 +57,13 @@ Webhook secret, real bowling clip validation, production publish on cricanalyze.
 - Admin Integrations: Ultralytics row + test button
 - Verified: Claude reply OK; pose 5 persons on test image; full pipeline on 3s clip: pose 24 frames/70s, ball 60 frames/180s
 - Backlog: dedicated Ultralytics deployment to lift 20 req/min (two simultaneous analyses share the limit and may hit the 5-min timeout); test on real cricket clips
+
+## Premium report upgrade + overall score (2026-10-26)
+User request: always show Overall Technique Score XX/100 when >=1 valid measurement (Provisional vs Technique Score), unavailable message + filming tip at zero measurements, premium report layout A-J, clean customer-facing text (no model names / raw confidence / UTC), IST everywhere, upload checklist, consistent web+PDF+history+timeline. Choices: keep Ultralytics YOLO26n; no target ranges on metric bars until coach-approved.
+- score_engine: complete scores unchanged (ca-score-v2 gate); new provisional_value = same weighted mean over included metrics only (re-normalised; missing never 0); display() works on stored v2 records; METHOD documents provisional + evidence-level rules
+- report_view.py: single customer view used by API (rep.view), PDF and lists: header, 3 takeaways, score+evidence (High/Medium/Limited), separate video quality (Good/Fair/Poor rule), metric bars (value + scale, no ranges/colours), 5-phase timeline (Clear frame / Approximate timing / Not assessed; crop box around player; overlay hidden when joints unclear), plain ball note, coaching (priority/why/how + measured basis), drills, practice plan only when evidence not poor (else one next step), progress vs latest earlier report from same camera angle (equivalent measured metrics only), action plan, one filming-tips box, one limitation note; staff-only diagnostics
+- PDF v3.0 rebuilt from the same view (IST, cropped phase frames, metric bars)
+- Frontend: PremiumReport.jsx; Report page simplified (frame-by-frame AI notes + AI visual ratings kept, labelled as AI); history list + timeline show technique score (provisional marked); upload "Before you upload" checklist per batting/bowling; IST dates; viewer labels without confidence decimals
+- AI prompt: adds coaching{priority,why_it_matters,how_to_practice} and drill common_mistakes; forbids model names/bat-ball claims
+- Overlays thicker for new reports; ball marker label "BALL" (no decimals)
+- Tests: tests/test_report_upgrade.py (12) + existing score tests (12) pass; real clips in tests/media; QA seed tests/seed_qa_users.py; e2e tests/qa_e2e_reports.py

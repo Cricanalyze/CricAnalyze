@@ -42,6 +42,11 @@ METHOD = {
     "coverage": "Coverage = included effective weight / total rubric weight.",
     "gate": f"An overall score is shown only with >= {GATE['min_metrics']} included metrics, >= {int(GATE['min_coverage'] * 100)}% coverage, "
             f">= {GATE['min_detected_phases']} detected (not estimated) phases and >= {GATE['min_components']} scored components. Otherwise only component scores are shown.",
+    "provisional": "When the gate is not met but at least one metric is included, a Provisional Technique Score is shown: the same weighted mean over only the "
+                   "included metrics (weights re-normalised; missing or low-confidence metrics are left out, never counted as 0). Coverage and evidence level are shown "
+                   "with it because it may change once a clearer clip measures the rest. With zero included metrics no score is shown. Fully assessed scores are unchanged.",
+    "evidence_level": "High: coverage >= 80%, mean joint-detection confidence of scored metrics >= 0.7 and >= 3 clearly identified phases. Medium: coverage >= 50% and "
+                      "confidence >= 0.55. Otherwise Limited. Describes how much the score can be trusted, not technique quality.",
     "status": "Configurable coaching heuristic from 2D pose measurements. Not a validated, official or universally comparable cricket rating, and it does not predict match performance.",
 }
 
@@ -106,7 +111,32 @@ def compute(kind, inputs, detected_phases):
         "inputs": [{k: i.get(k) for k in ("key", "value", "status", "confidence")} for i in inputs],
         "requirements": f">={GATE['min_metrics']} included metrics, >={int(GATE['min_coverage'] * 100)}% weight coverage, >={GATE['min_detected_phases']} detected phases, >={GATE['min_components']} components",
         "method": METHOD,
+        "provisional_value": None if ok else (round(all_acc / all_w) if all_w else None),
     }
+
+
+EVIDENCE_LABEL = {"high": "High", "medium": "Medium", "low": "Limited"}
+
+
+def display(sc):
+    """Customer-facing score from a saved score record (works for stored v2 records). Never invents a value."""
+    sc = sc or {}
+    if not sc.get("components"):
+        v = sc.get("value")
+        return {"value": v, "status": "complete" if v is not None else "unavailable", "included": None, "total": None, "coverage": None, "evidence": None}
+    total = sum(len(c.get("metrics") or []) + len(c.get("missing") or []) for c in sc["components"])
+    ms = [m for m in sc.get("metric_scores") or [] if m.get("score") is not None and m.get("effective_weight")]
+    if sc.get("value") is not None:
+        v, st = sc["value"], "complete"
+    elif sc.get("provisional_value") is not None:
+        v, st = sc["provisional_value"], "provisional"
+    elif ms:
+        v, st = round(sum(m["score"] * m["effective_weight"] for m in ms) / sum(m["effective_weight"] for m in ms)), "provisional"
+    else:
+        v, st = None, "unavailable"
+    n = len(sc.get("included") or ms)
+    ev = EVIDENCE_LABEL.get((sc.get("evidence") or {}).get("level")) if st != "unavailable" else None
+    return {"value": v, "status": st, "included": n, "total": total, "coverage": sc.get("coverage"), "detected_phases": sc.get("detected_phases"), "evidence": ev}
 
 
 def recompute(kind, saved):

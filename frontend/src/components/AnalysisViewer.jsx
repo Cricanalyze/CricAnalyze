@@ -30,7 +30,7 @@ const drawBall = (ctx, d, trail, R) => {
   const [cx, cy] = P(d), r = 11;
   ctx.lineWidth = 4; ctx.strokeStyle = "#000"; ctx.beginPath(); ctx.arc(cx, cy, r + 1, 0, 7); ctx.stroke();
   ctx.lineWidth = 2; ctx.strokeStyle = BALL_COLOR; ctx.setLineDash(d.status === "estimated" ? [4, 3] : []); ctx.beginPath(); ctx.arc(cx, cy, r, 0, 7); ctx.stroke(); ctx.setLineDash([]);
-  const label = d.status === "observed" ? `BALL ${d.conf.toFixed(2)}` : "BALL (estimated)";
+  const label = d.status === "observed" ? "BALL" : "BALL (estimated)";
   ctx.font = "bold 12px monospace"; const tw = ctx.measureText(label).width + 10;
   const right = cx + 40 + tw < R.x + R.w, lx = right ? cx + 40 : cx - 40 - tw, ly = Math.max(R.y + 18, cy - 40);
   ctx.beginPath(); ctx.moveTo(right ? lx : lx + tw, ly - 7); ctx.lineTo(cx + (right ? r : -r) * 0.7, cy - r * 0.7); ctx.stroke();
@@ -39,10 +39,10 @@ const drawBall = (ctx, d, trail, R) => {
 
 export const Legend = () => (
   <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-slate-400" data-testid="overlay-legend">
-    <span className="flex items-center gap-1"><span className="w-4 h-0.5 bg-[#00B4D8]" />Skeleton (pose model)</span>
-    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#10B981]" />Joint, confidence ≥ 0.5</span>
-    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#FBBF24]" />Joint, 0.3–0.5</span>
-    <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full border-2" style={{ borderColor: BALL_COLOR }} />Ball detected (solid trail)</span>
+    <span className="flex items-center gap-1"><span className="w-4 h-0.5 bg-[#00B4D8]" />Body outline</span>
+    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#10B981]" />Clearly seen joint</span>
+    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#FBBF24]" />Less certain joint</span>
+    <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full border-2" style={{ borderColor: BALL_COLOR }} />Ball seen (solid trail)</span>
     <span className="flex items-center gap-1"><span className="w-4 border-t-2 border-dashed" style={{ borderColor: BALL_COLOR }} />Estimated between detections</span>
   </div>
 );
@@ -119,11 +119,10 @@ export const AnalysisViewer = ({ b }) => {
       </div>
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs font-mono text-slate-400 mt-2" data-testid="viewer-readout">
         <span>t={t.toFixed(3)}s</span><span>frame {frame}</span>
-        <span data-testid="viewer-ball-readout">{det ? (det.status === "observed" ? `ball conf ${det.conf.toFixed(2)}` : "ball: estimated position") : "ball: not detected in this frame"}</span>
-        <span>{poseOn ? `skeleton from frame at ${pose.t}s` : "skeleton: frame not pose-analysed"}</span>
+        <span data-testid="viewer-ball-readout">{det ? (det.status === "observed" ? "ball seen in this frame" : "ball: estimated position") : "ball: not detected in this frame"}</span>
+        <span>{poseOn ? `body outline from frame at ${pose.t}s` : "body outline: not checked on this frame"}</span>
       </div>
       <div className="mt-3"><Legend /></div>
-      <p className="text-[11px] text-slate-500 mt-2">Filming tip: phone steady at hip height, 8–12 m away, side-on for batting knee/head metrics, whole body and the pitch area in frame, 60 fps or more helps the ball tracker.</p>
     </Card>
   );
 };

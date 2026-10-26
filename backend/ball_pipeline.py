@@ -350,7 +350,7 @@ def draw_marker(img, det, scale=1.0, trail=()):
     r = max(10, int(max(det.get("w") or 8, det.get("h") or 8) * scale * 0.9))
     cv2.circle(out, (cx, cy), r + 2, (0, 0, 0), 4, cv2.LINE_AA)
     cv2.circle(out, (cx, cy), r, col, 2, cv2.LINE_AA)
-    label = f"BALL {det['conf']:.2f}" if det.get("conf") is not None else "BALL (est.)"
+    label = "BALL" if det.get("conf") is not None else "BALL (est.)"
     fs = max(0.45, H / 1100)
     (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, fs, 2)
     lx = cx + 4 * r if cx + 4 * r + tw + 10 < W else cx - 4 * r - tw - 10
