@@ -268,13 +268,15 @@ async def issue_otp(email: str, purpose: str, request: Request, ctx=None, send_t
     code = f"{secrets.randbelow(10 ** 6):06d}"
     await db.email_verifications.update_many({"email": email, "purpose": purpose, "used": False},
                                              {"$set": {"used": True, "invalidated": True}})
-    await db.email_verifications.insert_one({"id": uid(), "email": email, "purpose": purpose,
+    rec_id = uid()
+    await db.email_verifications.insert_one({"id": rec_id, "email": email, "purpose": purpose,
                                              "code_hash": _otp_hash(email, purpose, code), "attempts": 0, "used": False,
                                              "created_at": now(), "expires_at": now() + timedelta(seconds=OTP_TTL),
                                              "extra": extra or {}})
     ok = await send_email(send_to or email, purpose, {"code": code, **(ctx or {})})
     if not ok:
-        raise HTTPException(502, "We couldn't send the email right now. Please try again in a moment.")
+        await db.email_verifications.delete_one({"id": rec_id})
+        raise HTTPException(503, "We couldn't send the email to this address. Please check it and try again.")
 
 
 async def verify_otp(email: str, purpose: str, code: str):

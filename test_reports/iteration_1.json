@@ -1,0 +1,36 @@
+{
+  "summary": "Smoke test after fresh setup. Backend: health (database=true, smtp_configured=true), /api/plans, /api/blog/posts, /api/sitemap.xml, signup validation, login 401, protected endpoints 401 all OK (10/11). Signup with example.com returns 502: SMTP login to Hostinger succeeds but Hostinger rejects the recipient at DATA with 554 'Recipient domain is reserved for documentation (RFC 2606)'. This is expected for example.com, not an SMTP config problem. Frontend: all public pages (/, features, how-it-works, pricing showing 3 plans from API at Rs.499/599/899, about, faq, contact, blog with 10 post links, 5 legal pages, 404) render with no JS errors. Login with wrong credentials shows the toast 'Incorrect email or password.' /app, /app/upload, /admin and /admin/blog redirect to /login?next=... Bug: when sending the email fails, the backend returns HTTP 502. The Cloudflare/ingress layer replaces that 502 with its own HTML page, so the signup toast shows 'The origin web server returned an invalid or incomplete response to Cloudflare...' instead of the app's message.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "core.issue_otp (used by /api/auth/signup, /login, /forgot, /resend, etc.)", "issue": "When sending the email fails, it raises HTTPException(502). The ingress/Cloudflare intercepts 502 and returns its own HTML error page, so the friendly 'We couldn't send the email right now' detail never reaches the client. Use 503 (or 400/422 for permanent recipient rejections like SMTP 55x) instead of 502."},
+      {"endpoint": "/api/auth/signup", "issue": "The email_verifications OTP record is inserted before the email is sent. If sending fails, an immediate retry gets 429 'Please wait 60 seconds' even though no code was delivered. Consider deleting or invalidating the record when sending fails."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Signup", "issue": "When SMTP fails, the toast shows Cloudflare's raw text ('origin web server returned an invalid or incomplete response...'). The cause is the backend 502 above. The frontend could also fall back to a generic message when the response body is not JSON.", "selector": "[data-testid='signup-submit-btn']", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_smoke_setup.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "In core.issue_otp, change the HTTPException(502) on send failure to 503 (or 400 for permanent 55x recipient rejections) so the app's error message reaches the user instead of Cloudflare's page",
+    "Optionally invalidate the OTP record when sending fails so the user can retry without hitting the 60s cooldown",
+    "Note: the existing tests in /app/backend/tests (test_auth.py etc.) likely depend on DEV_EMAIL_OUTBOX=true with @example.com. They will fail with real SMTP. Mark them as requiring outbox mode."
+  ],
+  "critical_code_review_comments": [
+    "The 502 status code for send failure conflicts with the proxy/ingress (see above)",
+    "CORS_ORIGINS defaults to '*' together with allow_credentials=True. Make sure .env sets explicit origins in production",
+    "server.py uses the deprecated @app.on_event('startup'). It works, but lifespan is the recommended replacement"
+  ],
+  "updated_files": ["/app/backend/tests/test_smoke_setup.py"],
+  "success_rate": {"backend": "91% (10/11; the failure is the expected example.com rejection surfacing as 502)", "frontend": "95% (all pages/redirects/login error OK; signup error message misleading)"},
+  "test_credentials": "/app/memory/test_credentials.md is empty. There are no seeded accounts, as stated in the request.",
+  "seed_data_creation": "2 unverified users created: smoketest+<random>@example.com (one via API, one via UI). No emails were delivered.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "SMTP (Hostinger) authentication works. It rejects example.com recipients with 554, so OTP flows cannot be completed without a real inbox or DEV_EMAIL_OUTBOX=true. Smoke tests: /app/backend/tests/test_smoke_setup.py. Anonymous /api/auth/me 401 console errors on public pages are expected.",
+  "rca of the issue": "Signup with example.com -> issue_otp -> send_email -> smtplib raises SMTPDataError 554 (RFC 2606 domain) -> send_email returns False -> issue_otp raises HTTPException(502) -> the preview ingress/Cloudflare replaces the 502 body with its HTML error page -> the frontend toast shows Cloudflare's text. Fix: use a status the proxy does not intercept (e.g. 503/400)."
+}

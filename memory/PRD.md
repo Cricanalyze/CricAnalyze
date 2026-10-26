@@ -45,3 +45,8 @@ User request: prominent overall technique score /100 (separate batting/bowling r
 
 ## Next tasks
 Webhook secret, real bowling clip validation, production publish on cricanalyze.in.
+
+## Environment setup (2026-10-26)
+- Imported repo into this workspace; installed backend/frontend deps; .env configured (real Hostinger SMTP, DEV_EMAIL_OUTBOX=false, Emergent LLM key, Razorpay test keys, new APP_SECRET, APP_URL = preview URL)
+- Verified: SMTP login OK, Razorpay test order OK, health OK, public pages + auth guards pass smoke test
+- Fix: OTP send failure now returns 503 (502 was masked by Cloudflare) and deletes the unsent OTP so retry works
