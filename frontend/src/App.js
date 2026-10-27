@@ -4,6 +4,7 @@ import { HelmetProvider } from "react-helmet-async";
 import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider, Protected, isStaff, isEditor } from "@/context/AuthContext";
 import { PublicLayout, AppLayout } from "@/components/Layouts";
+import SharedReport from "@/pages/SharedReport";
 import { Home, Features, HowItWorks, Pricing, About, Faq, Contact, Legal, NotFound } from "@/pages/Public";
 import { BlogList, BlogPost, SharedPassport } from "@/pages/Blog";
 import { Login, Signup, VerifyEmail, ForgotPassword, ResetPassword } from "@/pages/Auth";
@@ -21,6 +22,7 @@ function App() {
       <BrowserRouter>
         <AuthProvider>
           <Routes>
+            <Route path="/r/:token" element={<SharedReport />} />
             <Route element={<PublicLayout />}>
               <Route path="/" element={<Home />} />
               <Route path="/features" element={<Features />} />

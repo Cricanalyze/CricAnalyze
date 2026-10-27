@@ -13,8 +13,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { api, errMsg, fmtDate, fmtDateTime, media, download } from "@/lib/api";
 import { useAuth, isStaff } from "@/context/AuthContext";
 import { PageHeader, Empty, Card, Badge, statusTone, Seo } from "@/components/Common";
-import { Biomech } from "@/components/Biomech";
-import { PremiumReport } from "@/components/PremiumReport";
+import { ReportBody } from "@/components/ReportBody";
+import { ShareButton } from "@/components/ShareButton";
 
 export const Dashboard = () => {
   const { user, ent } = useAuth();
@@ -242,7 +242,7 @@ export const Report = () => {
   const [job, setJob] = useState(null);
   const [videoUrl, setVideoUrl] = useState(null);
   const [originalUrl, setOriginalUrl] = useState(null);
-  const [frame, setFrame] = useState(null);
+  const { user } = useAuth();
   const load = useCallback(() => api.get(`/analyses/${id}`).then(({ data }) => setJob(data)).catch(() => setJob(false)), [id]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
@@ -254,6 +254,7 @@ export const Report = () => {
   if (job === false) return <Empty title="Analysis not found" testid="report-not-found" />;
   if (!job) return <p className="text-slate-400">Loading…</p>;
   const r = job.report;
+  const isOwner = user?.id === job.user_id || isStaff(user);
   const retry = async () => { try { await api.post(`/analyses/${id}/retry`); toast.success("Retry queued."); load(); } catch (e) { toast.error(errMsg(e)); } };
   const genPlan = async () => { try { toast.info("Creating plan…"); await api.post("/training/plans/generate", { report_id: r.id }); nav("/app/training"); } catch (e) { toast.error(errMsg(e)); } };
   return (
@@ -261,31 +262,13 @@ export const Report = () => {
       <PageHeader eyebrow={r ? `${job.analysis_type} analysis` : `${job.analysis_type} analysis · ${fmtDateTime(job.created_at)}`} title={r ? "Technique report" : "Analysis in progress"}>
         {r && <><Button variant="secondary" onClick={() => download(`/analyses/${id}/pdf`, `cricanalyze-${id.slice(0, 8)}.pdf`).catch((e) => toast.error(e?.response?.status === 402 ? "PDF export isn't included in your plan." : "PDF failed"))} data-testid="report-pdf-btn"><FileDown size={16} className="mr-1" />PDF</Button>
           <Button variant="secondary" onClick={genPlan} data-testid="report-plan-btn"><Sparkles size={16} className="mr-1" />Training plan</Button>
+          {isOwner && <ShareButton jobId={id} />}
           <Button variant="secondary" asChild data-testid="report-coach-btn"><Link to="/app/coach"><MessageSquare size={16} className="mr-1" />Ask coach</Link></Button></>}
       </PageHeader>
       {!r && <Card className="mb-6" data-testid="job-status-card"><div className="flex items-center gap-3 mb-3"><Badge tone={statusTone(job.status)}>{job.status}</Badge><span className="text-sm text-slate-400">{job.stage?.replace(/_/g, " ")}</span></div>
         {job.status === "failed" ? <div><p className="text-red-300 flex gap-2 items-start"><AlertTriangle size={18} />{job.failure_reason}</p><p className="text-xs text-slate-500 mt-1">{job.credit_state === "refunded" ? "Your credit was refunded." : ""}</p><Button className="mt-4" onClick={retry} data-testid="retry-btn"><RefreshCw size={16} className="mr-1" />Retry</Button></div>
           : <><Progress value={job.progress} /><p className="text-xs text-slate-500 mt-2">Usually 1–3 minutes. You can leave this page — we'll email you when it's ready.{job.last_error ? ` Retrying after: ${job.last_error}` : ""}</p></>}</Card>}
-      {r && <div className="mb-6">{r.view ? <PremiumReport r={r} /> : <Biomech r={r} />}</div>}
-      {r && <div className="grid lg:grid-cols-5 gap-6" data-testid="report-view">
-        <div className="lg:col-span-3 space-y-5">
-          {videoUrl && <div><video src={videoUrl} controls className="w-full rounded-xl bg-black aspect-video" data-testid="report-video" />
-            <div className="flex justify-between text-xs text-slate-500 mt-1.5"><span>Normal-speed playback. Use the analysis viewer above for slow motion.</span>{originalUrl && <a href={originalUrl} download className="text-[#00B4D8] hover:underline" data-testid="original-video-link">Original video</a>}</div></div>}}
-          <Card><h3 className="font-semibold mb-1">Frame-by-frame notes</h3><p className="text-xs text-slate-500 mb-3">AI interpretation of sampled frames. Tap a time to see the frame.</p>
-            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">{r.frames.map((f) => <button key={f.index} onClick={() => setFrame(f)} className={`relative rounded-md overflow-hidden border ${frame?.index === f.index ? "border-[#10B981]" : "border-transparent"}`} data-testid={`frame-${f.index}`}>
-              <img src={media(f.url)} alt={`Frame at ${f.t}s`} className="aspect-video object-cover w-full" /><span className="absolute bottom-0 left-0 text-[10px] font-mono bg-black/70 px-1">{f.t}s</span></button>)}</div>
-            {frame && <img src={media(frame.url)} alt="Selected frame" className="mt-3 rounded-lg w-full" />}
-            <div className="space-y-3 mt-4">{(r.observations || []).map((o, i) => <div key={i} className="border-l-2 border-[#00B4D8]/40 pl-3" data-testid={`observation-${i}`}>
-              <div className="flex flex-wrap gap-2 items-center text-xs"><span className="font-semibold capitalize text-sm">{o.area?.replace(/_/g, " ")}</span><Badge tone={o.evidence_type === "observed" ? "teal" : "amber"}>{o.evidence_type === "observed" ? "Seen in video" : "Coach inference"}</Badge>
-                {o.timestamp_s != null && <button className="font-mono text-[#00B4D8]" onClick={() => setFrame(r.frames.find((f) => f.index === o.image_index) || null)}>{o.timestamp_s}s</button>}</div>
-              <p className="text-sm text-slate-300 mt-1">{o.observation}</p></div>)}</div></Card>
-        </div>
-        <div className="lg:col-span-2 space-y-5">
-          <Card><h3 className="font-semibold mb-1">Visual ratings by area</h3><p className="text-xs text-slate-500 mb-3">AI visual impressions (1–5), separate from the measured technique score.</p>{Object.entries(r.scores || {}).filter(([, s]) => s?.rating).map(([k, s]) => <div key={k} className="mb-2.5"><div className="flex justify-between text-xs"><span className="capitalize">{k.replace(/_/g, " ")}</span><span className="text-slate-400">{s.rating}/5</span></div>
-            <div className="h-1.5 bg-white/10 rounded mt-1"><div className="h-full rounded bg-[#00B4D8]" style={{ width: `${s.rating * 20}%` }} /></div>{s?.note && <p className="text-[11px] text-slate-500 mt-0.5">{s.note}</p>}</div>)}</Card>
-          {r.locked?.length > 0 && <Card><p className="text-xs text-amber-300" data-testid="report-locked">Upgrade to unlock: {r.locked.join(", ")}</p></Card>}
-        </div>
-      </div>}
+      {r && <ReportBody r={r} videoUrl={videoUrl} originalUrl={originalUrl} />}
     </div>
   );
 };

@@ -100,7 +100,8 @@ def score_view(b, kind, tips):
         out["text"] = "No technique measurement could be taken reliably from this clip, so a score can't be calculated."
         out["tip"] = tips[0]
     comps = (b.get("score") or {}).get("components") or []
-    out["components"] = [{"name": c["name"], "score": round(c["score"]), "measured": len(c["metrics"]), "of": len(c["metrics"]) + len(c["missing"])} for c in comps if c.get("score") is not None]
+    out.pop("raw_value", None)
+    out["components"] = [{"name": c["name"], "score": score_engine.to_display(c["score"]), "measured": len(c["metrics"]), "of": len(c["metrics"]) + len(c["missing"])} for c in comps if c.get("score") is not None]
     return out
 
 
@@ -176,7 +177,21 @@ def angle_view(b, kind, tips):
     window = f"Analysed {mmss(w['t0'])}–{mmss(w['t1'])} of the clip, the part with the most movement." if w.get("method") == "most_movement" else None
     return {"video_id": b.get("video_id"), "angle": (b.get("angle") or "").replace("_", "-"), "pose_available": b.get("status") != "unavailable", "analysed_window": window,
             "video_quality": video_quality(b), "score": score_view(b, kind, tips), "metrics": mets, "timeline": timeline(b, kind, mets) if b.get("status") != "unavailable" else [],
-            "ball": ball_view(b.get("ball"))}
+            "ball": ball_view(b.get("ball")), "assessments": assessments_view(b)}
+
+
+ASSESS_STATUS = {"measured": "Measured", "inconclusive": "Inconclusive", "unavailable": "Not available"}
+
+
+def assessments_view(b):
+    out = []
+    for a in b.get("bowling_assessments") or []:
+        row = {k: a.get(k) for k in ("key", "name", "status", "summary", "details", "reason", "method", "t", "idx", "phase", "frame_asset_id", "overlay_asset_id", "frame_url", "overlay_url")}
+        row["status_label"] = ASSESS_STATUS.get(a["status"], a["status"])
+        if a.get("ai_note"):
+            row["ai_note"] = a["ai_note"]["text"]
+        out.append(row)
+    return out
 
 
 def _primary(angles):

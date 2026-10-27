@@ -77,3 +77,11 @@ User request: always show Overall Technique Score XX/100 when >=1 valid measurem
 - Fixes from test iteration: PDF v3.1 cache bust (dates/takeaways match web), angle-aware filming tip (side-on clips suggest front-on), progress dates use job time, de-duplicated poor-evidence tip, 2-decimal change values, tilt metrics on 0–60° scale
 - Tests: tests/test_action_window.py (3) + previous 24 pass; long clips tests/media/bat_long.mp4, bowl_long.mp4
 - Known: asyncio timeouts don't stop worker threads (a timed-out stage keeps running during retry)
+
+## Bowling biomechanics + display score + share links (2026-10-27)
+- bowling_assess.py (new): back-foot landing (contact frame/timestamp, placement vs hips, foot direction = AI visual note only), action type (side-on / semi-side-on / front-on / mixed from shoulder & hip line foreshortening at BFC + counter-rotation; inconclusive if not side/front/behind camera or joints unclear), shin lead at FFC (side-on only, angle from vertical + direction from run-up), trunk lean at BFC/FFC/release (whole-trunk only; lower-back/spinal curvature explicitly not measured). Not part of the score. Annotated reference frames + viewer marks.
+- pose_pipeline: every original frame ±0.15 s around BFC/FFC analysed (_densify); contact = first frame ankle reaches lowest point; pose_track t to 3 decimals
+- Viewer: measurement lines + caption on exact frames, "Jump to" event buttons; BowlingAssessments card in web report; PDF table (PDF v3.2)
+- Display score: score_engine.to_display maps raw 0–100 onto 70–100 (owner choice; raw kept in DB; not mentioned to players); applies to report, components, history list, timeline, progress, PDF
+- Share links: POST/DELETE/GET /api/analyses/{id}/share (owner/staff), public GET /api/public/reports/{token} and /pdf (PDF follows player's plan); page /r/:token shows full player view incl. video; never expires until turned off
+- Tests: tests/test_bowling_assess.py (6); real clips tests/media/bowl_side.mp4 (side-on, all 4 measured), bowl1.mp4 (front-on), keedy.mp4 (distant multi-person: unavailable)

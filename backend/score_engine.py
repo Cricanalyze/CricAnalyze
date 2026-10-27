@@ -118,8 +118,23 @@ def compute(kind, inputs, detected_phases):
 EVIDENCE_LABEL = {"high": "High", "medium": "Medium", "low": "Limited"}
 
 
-def display(sc):
+DISPLAY_FLOOR = 70
+
+
+def to_display(v):
+    """Owner-chosen display scale: raw 0-100 is mapped linearly onto 70-100 (order preserved). Raw values stay stored."""
+    return None if v is None else round(DISPLAY_FLOOR + v * (100 - DISPLAY_FLOOR) / 100)
+
+
+def display(sc, scaled=True):
     """Customer-facing score from a saved score record (works for stored v2 records). Never invents a value."""
+    out = _display(sc)
+    if scaled:
+        out["raw_value"], out["value"] = out["value"], to_display(out["value"])
+    return out
+
+
+def _display(sc):
     sc = sc or {}
     if not sc.get("components"):
         v = sc.get("value")

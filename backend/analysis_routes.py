@@ -1,4 +1,4 @@
-import os, io, json, re, base64, asyncio, tempfile
+import os, io, json, re, base64, asyncio, tempfile, secrets
 import cv2
 import numpy as np
 import pose_pipeline
@@ -284,10 +284,10 @@ async def load_report_for(u, job):
         for b in rep.get("biomech") or []:
             sc = b.get("score") or {}
             if sc.get("components") and sc.get("value") is None and sc.get("provisional_value") is None:
-                sc["provisional_value"] = score_engine.display(sc)["value"]
+                sc["provisional_value"] = score_engine.display(sc, scaled=False)["value"]
         rep = filter_report(rep, job.get("report_level", "basic"))
         for b in rep.get("biomech") or []:
-            for p in b.get("phases", []):
+            for p in b.get("phases", []) + (b.get("bowling_assessments") or []):
                 for k in ("frame_asset_id", "overlay_asset_id", "ball_overlay_asset_id"):
                     if p.get(k):
                         p[k.replace("_asset_id", "_url")] = sign_media(p[k])
@@ -476,6 +476,8 @@ def biomech_brief(biomechs):
         ph = ", ".join(f"{p['name']}={p['status']}" + (f"@{p['t']}s" if p.get('t') is not None else "") for p in b["phases"])
         ms = "; ".join(f"{m['name']}: {m['value']} {m['unit']} ({m['status']})" if m.get("value") is not None else f"{m['name']}: not measurable" for m in b["metrics"])
         out.append(f"angle={b['angle']}: phases [{ph}]. Metrics [{ms}]. Quality issues: {b['quality']['issues'] or 'none'}.")
+        for a in b.get("bowling_assessments") or []:
+            out.append(f"  {a['name']}: {a['status']}. {a['summary'] or a['reason']} " + "; ".join(f"{x['label']}: {x['value']}" for x in a["details"]))
     return "\n".join(out)
 
 
@@ -485,7 +487,7 @@ def build_prompt(kind, frames_by_video, notes, biomechs=None, shot_type=None):
     i = 0
     for v, frames in frames_by_video:
         for f in frames:
-            lines.append(f"Image {i}: angle={v['angle']}, t={f['t']}s")
+            lines.append(f"Image {i}: angle={v['angle']}, t={f['t']}s" + (f" ({f['label']})" if f.get("label") else ""))
             i += 1
     bm = biomech_brief(biomechs or [])
     return f"""Analyse this {kind} technique. {'Shot/delivery type: ' + shot_type + '.' if shot_type else ''} {'Player note: ' + notes if notes else ''}
@@ -504,6 +506,7 @@ Return JSON with keys:
 "per_angle": list of {{"angle","visibility":"good"|"partial"|"poor","note"}},
 "limitations": list of strings about what could not be reliably assessed,
 "overall_confidence": "low"|"medium"|"high",
+{'"back_foot_orientation": null or {"text": which way the back foot points at landing (e.g. parallel to the crease, pointing towards fine leg), "image_index"} — only from the image labelled back-foot contact frame and only if the foot itself is clearly visible,' if kind == "bowling" else ''}
 "coach_summary": string (4-6 sentences for the player; reference the measured metrics and phases above by name and value where available, say plainly which could not be measured) """
 
 
@@ -574,6 +577,10 @@ async def process_job(job):
             bio["playback_asset_id"] = v.get("playback_asset_id")
         if not fr:
             raise PermanentError("We couldn't extract frames from the video.")
+        bfc = next((p for p in bio.get("phases", []) if p["key"] == "back_foot_contact" and p.get("idx") is not None), None)
+        bimg = next((raw for k, raw, _ in pimgs if k == "back_foot_contact"), None)
+        if bfc and bimg and all(abs(f["t"] - bfc["t"]) > 0.02 for f in fr):
+            fr = sorted(fr + [{"t": round(bfc["t"], 3), "jpg": bimg, "label": "back-foot contact frame"}], key=lambda f: f["t"])
         frames_by_video.append((v, fr))
         biomechs.append({"video_id": v["id"], "angle": v["angle"], **bio})
         phase_imgs.append(pimgs)
@@ -593,9 +600,10 @@ async def process_job(job):
             idx += 1
     for b, pimgs in zip(biomechs, phase_imgs):
         for key, raw, ov in pimgs:
-            ph = next(p for p in b["phases"] if p["key"] == key)
+            assess = key.startswith("assess:")
+            ph = next(p for p in (b.get("bowling_assessments") or []) if p["key"] == key[7:]) if assess else next(p for p in b["phases"] if p["key"] == key)
             blobs = [("frame_asset_id", raw), ("overlay_asset_id", ov)]
-            d, trail = ball_pipeline.phase_marker(b.get("ball"), ph.get("idx"))
+            d, trail = (None, None) if assess else ball_pipeline.phase_marker(b.get("ball"), ph.get("idx"))
             if d:
                 im = cv2.imdecode(np.frombuffer(ov, np.uint8), cv2.IMREAD_COLOR)
                 bim = ball_pipeline.draw_marker(im, d, im.shape[1] / b["ball"]["frame_size"][0], trail)
@@ -607,6 +615,12 @@ async def process_job(job):
                 await db.media_assets.insert_one({"id": aid, "user_id": job["user_id"], "kind": "phase_frame", "storage_path": res["path"],
                                                   "content_type": "image/jpeg", "is_deleted": False, "created_at": now()})
                 ph[field] = aid
+    bfo = result.get("back_foot_orientation")
+    if isinstance(bfo, dict) and bfo.get("text"):
+        for b in biomechs:
+            for a in b.get("bowling_assessments") or []:
+                if a["key"] == "back_foot_landing" and a["status"] == "measured":
+                    a["ai_note"] = {"text": str(bfo["text"])[:200], "image_index": bfo.get("image_index")}
     measured = any(b.get("status") == "measured" for b in biomechs)
     rep = {"id": uid(), "job_id": job["id"], "user_id": job["user_id"], "analysis_type": job["analysis_type"], "created_at": now(),
            "model": f"anthropic/{AI_MODEL} (vision, sampled frames)", "provider": "vision_llm", "frames": frames, "report_version": 2,
@@ -667,3 +681,74 @@ async def worker_loop():
         except Exception as e:
             log.error(f"worker loop error {sanitize_error(e)}")
         await asyncio.sleep(3)
+
+
+def _share_url(token):  # path only; the frontend prefixes its own origin
+    return f"/r/{token}"
+
+
+@router.post("/analyses/{job_id}/share")
+async def share_on(job_id: str, u=Depends(current_user)):
+    job = await get_job_authorized(u, job_id)
+    if u["id"] != job["user_id"] and u["role"] not in STAFF:
+        raise HTTPException(403, "Only the player can share this report.")
+    if job["status"] != "completed":
+        raise HTTPException(409, "The report isn't ready yet.")
+    token = job.get("share_token") or secrets.token_urlsafe(18)
+    await db.analysis_jobs.update_one({"id": job_id}, {"$set": {"share_token": token, "share_enabled": True, "shared_at": now()}})
+    await audit(u["id"], "report_shared", job_id)
+    return {"enabled": True, "url": _share_url(token)}
+
+
+@router.delete("/analyses/{job_id}/share")
+async def share_off(job_id: str, u=Depends(current_user)):
+    job = await get_job_authorized(u, job_id)
+    if u["id"] != job["user_id"] and u["role"] not in STAFF:
+        raise HTTPException(403, "Only the player can change sharing.")
+    await db.analysis_jobs.update_one({"id": job_id}, {"$set": {"share_enabled": False}, "$unset": {"share_token": ""}})
+    await audit(u["id"], "report_unshared", job_id)
+    return {"enabled": False}
+
+
+@router.get("/analyses/{job_id}/share")
+async def share_status(job_id: str, u=Depends(current_user)):
+    job = await get_job_authorized(u, job_id)
+    on = bool(job.get("share_enabled") and job.get("share_token"))
+    return {"enabled": on, "url": _share_url(job["share_token"]) if on else None}
+
+
+async def _shared(token):
+    job = await db.analysis_jobs.find_one({"share_token": token, "share_enabled": True, "status": "completed"}, {"_id": 0})
+    if not job or len(token) < 20:
+        raise HTTPException(404, "This shared report link isn't active.")
+    owner = await db.users.find_one({"id": job["user_id"]}, {"_id": 0, "id": 1, "role": 1, "full_name": 1})
+    if not owner:
+        raise HTTPException(404, "This shared report link isn't active.")
+    return job, {**owner, "role": "player"}
+
+
+@router.get("/public/reports/{token}")
+async def public_report(token: str):
+    job, viewer = await _shared(token)
+    rep = await load_report_for(viewer, job)
+    if not rep:
+        raise HTTPException(404, "This shared report link isn't active.")
+    await attach_view(viewer, job, rep)
+    vids = await db.video_assets.find({"id": {"$in": job["video_ids"]}, "is_deleted": False}, {"_id": 0, "id": 1, "playback_asset_id": 1}).to_list(5)
+    pdf_ok = (await entitlements(job["user_id"]))["pdf_export"]
+    out = {k: job.get(k) for k in ("id", "analysis_type", "status", "created_at", "video_ids", "report_level")}
+    out.update(report=rep, pdf_available=pdf_ok,
+               videos=[{"id": v["id"], "url": sign_media(v.get("playback_asset_id") or v["id"]), "original_url": sign_media(v["id"])} for v in vids])
+    return out
+
+
+@router.get("/public/reports/{token}/pdf")
+async def public_report_pdf(token: str):
+    job, viewer = await _shared(token)
+    if not (await entitlements(job["user_id"]))["pdf_export"]:
+        raise HTTPException(402, "PDF export isn't included in this player's plan.")
+    rep = await load_report_for(viewer, job)
+    owner = await db.users.find_one({"id": job["user_id"]})
+    await attach_view(viewer, job, rep)
+    pdf = await pdfgen.get_or_build(rep, job, owner)
+    return Response(pdf, media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename=cricanalyze-{job['id'][:8]}.pdf"})

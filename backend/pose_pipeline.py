@@ -1,5 +1,5 @@
 """CricAnalyze pose pipeline (ca-pose-v1). See METHODOLOGY for geometry, thresholds and scoring."""
-import os, math, threading, base64
+import os, math, threading, base64, statistics
 from pathlib import Path
 import numpy as np
 import cv2
@@ -153,7 +153,7 @@ def _track(path, window=None):
                 keep.append(i)
         res = _infer(imgs) if imgs else []
         for i, im, persons in zip(keep, imgs, res):
-            frames[i] = {"idx": i, "t": round(i / fps, 2), "img": im, "persons": persons}
+            frames[i] = {"idx": i, "t": round(i / fps, 3), "img": im, "persons": persons}
 
     run(coarse)
     seq = _select(frames)
@@ -260,6 +260,31 @@ def phases_batting(seq):
     return res
 
 
+def _landing(cands, ank):
+    """First frame where the ankle reaches its lowest point (within 3% of torso length)."""
+    ys = [P(f, ank)[1] for f in cands]
+    tol = 0.03 * statistics.median(torso(f) for f in cands)
+    return next(f for f, y in zip(cands, ys) if y >= max(ys) - tol)
+
+
+def _densify(path, seq, centers, half=0.15):
+    """Adds every original frame within ±half s of each centre, at the original timestamps."""
+    cap = cv2.VideoCapture(path)
+    fps = cap.get(cv2.CAP_PROP_FPS) or 25
+    frames = {f["idx"]: f for f in seq}
+    idxs = sorted({i for c in centers for i in range(max(0, int((c - half) * fps)), int((c + half) * fps) + 1)} - set(frames))
+    imgs, keep = [], []
+    for i in idxs:
+        im = _read(cap, i)
+        if im is not None:
+            imgs.append(im)
+            keep.append(i)
+    cap.release()
+    for i, im, persons in zip(keep, imgs, _infer(imgs) if imgs else []):
+        frames[i] = {"idx": i, "t": round(i / fps, 3), "img": im, "persons": persons}
+    return _select(frames)
+
+
 def phases_bowling(seq):
     v = [f for f in seq if torso(f) and P(f, "nose")]
     res = {k: None for k, _ in PHASES["bowling"]}
@@ -275,11 +300,11 @@ def phases_bowling(seq):
     front_ank, back_ank = ("r_ank", "l_ank") if arm == "l_wri" else ("l_ank", "r_ank")
     pre = [f for f in v if rel["t"] - 0.5 <= f["t"] <= rel["t"] and P(f, front_ank)]
     if pre:
-        ffc = max(pre, key=lambda f: P(f, front_ank)[1])
+        ffc = _landing(pre, front_ank)
         res["front_foot_contact"] = _ph(ffc, "estimated", "Front ankle at its lowest point before release.")
         pre2 = [f for f in v if ffc["t"] - 0.6 <= f["t"] < ffc["t"] and P(f, back_ank)]
         if pre2:
-            bfc = max(pre2, key=lambda f: P(f, back_ank)[1])
+            bfc = _landing(pre2, back_ank)
             res["back_foot_contact"] = _ph(bfc, "estimated", "Back ankle at its lowest point before front-foot contact.")
             pre3 = [f for f in v if bfc["t"] - 0.8 <= f["t"] < bfc["t"] and len(wrists(f)) == 2]
             if pre3:
@@ -452,6 +477,10 @@ def analyse_video(path, kind, angle_label, meta, window=None):
         mets = metrics_batting(ph, angle_label)
     else:
         ph, arm = phases_bowling(seq)
+        centers = [ph[k]["frame"]["t"] for k in ("back_foot_contact", "front_foot_contact") if ph.get(k)]
+        if centers:
+            seq = _densify(path, seq, centers)
+            ph, arm = phases_bowling(seq)
         mets = metrics_bowling(ph, arm, angle_label)
     phases, imgs = [], []
     for k, n in PHASES[kind]:
@@ -466,9 +495,14 @@ def analyse_video(path, kind, angle_label, meta, window=None):
         raw = cv2.imencode(".jpg", f["img"], [cv2.IMWRITE_JPEG_QUALITY, 85])[1].tobytes()
         ov = cv2.imencode(".jpg", overlay(f["img"], f["kp"]), [cv2.IMWRITE_JPEG_QUALITY, 85])[1].tobytes()
         imgs.append((k, raw, ov))
+    assessments = None
+    if kind == "bowling":
+        import bowling_assess
+        assessments, aimgs = bowling_assess.assess(seq, ph, arm, angle_label, fps)
+        imgs += aimgs
     sc = score(kind, mets, phases)
     status = "measured" if any(m["status"].startswith("measured") for m in mets) else "insufficient"
     track = [{"t": f["t"], "idx": f["idx"], "kp": [[round(x / f["img"].shape[1], 4), round(y / f["img"].shape[0], 4), round(s, 2)] for x, y, s in f["kp"]]}
              for f in seq if f.get("kp")]
     return {**base, "status": status, "bowling_arm": {"l_wri": "left", "r_wri": "right"}.get(arm), "phases": phases, "metrics": mets, "score": sc,
-            "pose_track": track, "fps": round(fps, 3)}, imgs
+            "pose_track": track, "fps": round(fps, 3), **({"bowling_assessments": assessments} if assessments is not None else {})}, imgs

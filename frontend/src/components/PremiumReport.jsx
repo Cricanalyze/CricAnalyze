@@ -4,6 +4,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend as RL
 import { media } from "@/lib/api";
 import { Card, Badge } from "@/components/Common";
 import { AnalysisViewer, Legend } from "@/components/AnalysisViewer";
+import { BowlingAssessments } from "@/components/BowlingAssessments";
 
 const H = ({ icon: Icon, children, testid }) => <h3 className="font-semibold text-base flex items-center gap-2 mb-3" data-testid={testid}>{Icon && <Icon size={17} className="text-[#00B4D8]" />}{children}</h3>;
 const VQ = { Good: "green", Fair: "amber", Poor: "red", "Not assessed": "slate" };
@@ -96,6 +97,7 @@ const AngleSection = ({ a, raw }) => (
     {a.analysed_window && <p className="text-xs text-slate-400" data-testid="analysed-window">{a.analysed_window}</p>}
     {!a.pose_available && <Card data-testid="pose-unavailable"><p className="text-sm text-slate-300">Body tracking wasn't available for this clip, so only the coach's visual notes are shown.</p></Card>}
     <MetricBars mets={a.metrics} />
+    <BowlingAssessments items={a.assessments} />
     <PhaseTimeline tl={a.timeline} />
     {raw?.video_url && a.pose_available && <AnalysisViewer b={raw} />}
     {a.ball && <p className="text-xs text-slate-400 px-1" data-testid="ball-note">{a.ball.text} {a.ball.notes.join(" ")}</p>}

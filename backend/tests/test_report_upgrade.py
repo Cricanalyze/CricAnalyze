@@ -15,14 +15,14 @@ FULL = [m("front_knee_angle", 152.5), m("head_over_front_foot", 0.1), m("setup_b
 
 def test_complete_evidence_unchanged():
     r = se.compute("batting", FULL, 3)
-    d = se.display(r)
+    d = se.display(r, scaled=False)
     assert r["value"] == 85 and d["value"] == 85 and d["status"] == "complete"
     assert r["provisional_value"] is None
 
 
 def test_partial_evidence_provisional_normalised():
     r = se.compute("batting", [m("front_knee_angle", 152.5), m("setup_balance", 0.35)], 3)
-    d = se.display(r)
+    d = se.display(r, scaled=False)
     assert r["value"] is None and d["status"] == "provisional"
     # weighted mean over valid metrics only: (1.0*100 + 0.8*40) / 1.8
     assert d["value"] == round((100 + 0.8 * 40) / 1.8) == r["provisional_value"]
@@ -33,7 +33,7 @@ def test_one_detected_phase_is_provisional_with_same_formula():
     inp = [m("front_knee_angle", 152.5), m("head_over_front_foot", 0.1), m("setup_balance", 0.1), m("hands_height_backlift", 0.25)]
     gated = se.compute("batting", inp, 1)
     full = se.compute("batting", inp, 3)
-    d = se.display(gated)
+    d = se.display(gated, scaled=False)
     assert gated["value"] is None and d["status"] == "provisional" and d["value"] == full["value"]
 
 
@@ -52,7 +52,7 @@ def test_zero_valid_measurements_unavailable():
 def test_display_from_stored_v2_record_without_provisional_field():
     r = se.compute("batting", [m("front_knee_angle", 152.5), m("setup_balance", 0.35)], 3)
     r.pop("provisional_value")
-    assert se.display(r)["value"] == round((100 + 0.8 * 40) / 1.8)
+    assert se.display(r, scaled=False)["value"] == round((100 + 0.8 * 40) / 1.8)
 
 
 def test_evidence_labels():
@@ -117,3 +117,11 @@ def test_history_comparable_only_same_angle():
     old["biomech"][0]["angle"] = "front_on"
     assert rv.comparable_history(cur, [old]) is None
     assert rv.comparable_history(cur, []) is None
+
+
+def test_display_scale_70_to_100_keeps_order_and_unavailable():
+    assert [se.to_display(v) for v in (0, 40, 85, 100)] == [70, 82, 96, 100]
+    r = se.compute("batting", FULL, 3)
+    d = se.display(r)
+    assert d["raw_value"] == 85 and d["value"] == 96 and r["value"] == 85
+    assert se.display(se.compute("batting", [], 0))["value"] is None

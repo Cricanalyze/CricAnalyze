@@ -2,7 +2,7 @@
 import os, sys, time, uuid, json, requests
 BASE = open("/app/frontend/.env").read().split("REACT_APP_BACKEND_URL=")[1].split()[0] + "/api"
 D = "/app/backend/tests/media"
-CLIPS = [("bat_long.mp4", "batting", "front_on"), ("bowl_long.mp4", "bowling", "front_on")]
+CLIPS = [("bowl_side.mp4", "bowling", "side_on"), ("bowl_front100.mp4", "bowling", "front_on"), ("bat2.mp4", "batting", "front_on")]
 
 
 def session(email, pw):

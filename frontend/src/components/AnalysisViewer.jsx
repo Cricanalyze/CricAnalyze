@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { Play, Pause, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { media } from "@/lib/api";
 import { Card } from "@/components/Common";
@@ -54,6 +54,15 @@ const useFrameState = (b) => {
   return { fps, byFrame: byFrame.current };
 };
 
+const drawMarks = (ctx, marks, R) => {
+  const P = (p) => [R.x + p[0] * R.w, R.y + p[1] * R.h];
+  marks.forEach((m) => m.lines.forEach((l) => {
+    ctx.strokeStyle = l.color; ctx.lineWidth = l.color === "#E2E8F0" ? 2 : 5; ctx.setLineDash(l.color === "#E2E8F0" ? [6, 5] : []);
+    ctx.beginPath(); ctx.moveTo(...P(l.a)); ctx.lineTo(...P(l.b)); ctx.stroke();
+  }));
+  ctx.setLineDash([]);
+};
+
 export const AnalysisViewer = ({ b }) => {
   const vRef = useRef(null), cRef = useRef(null);
   const [showPose, setShowPose] = useState(true);
@@ -69,6 +78,9 @@ export const AnalysisViewer = ({ b }) => {
   const det = byFrame.get(frame);
   const pose = (b.pose_track || []).reduce((best, p) => (Math.abs(p.t - t) < Math.abs((best?.t ?? 1e9) - t) ? p : best), null);
   const poseOn = pose && Math.abs(pose.t - t) <= 0.6 / fps + 0.02;
+  const marks = useMemo(() => (b.bowling_assessments || []).filter((a) => a.status === "measured").flatMap((a) => a.marks || []), [b]);
+  const events = useMemo(() => [...new Map(marks.map((m) => [m.idx, m])).values()].sort((x, y) => x.idx - y.idx), [marks]);
+  const here = useMemo(() => marks.filter((m) => m.idx === frame), [marks, frame]);
 
   const draw = useCallback(() => {
     const v = vRef.current, c = cRef.current;
@@ -77,12 +89,13 @@ export const AnalysisViewer = ({ b }) => {
     const ctx = c.getContext("2d"), R = contentRect(v, c);
     ctx.clearRect(0, 0, c.width, c.height);
     if (showPose && poseOn && !loading && !failed) drawSkeleton(ctx, pose.kp, R);
+    if (showPose && here.length && !loading && !failed) drawMarks(ctx, here, R);
     if (showBall && det && !loading && !failed) {
       const trail = [];
       for (let f = frame - 8; f <= frame; f++) { const d = byFrame.get(f); if (d && d.track_id === det.track_id) trail.push(d); }
       drawBall(ctx, det, trail, R);
     }
-  }, [showPose, showBall, poseOn, pose, det, frame, byFrame, loading, failed]);
+  }, [showPose, showBall, poseOn, pose, det, frame, byFrame, loading, failed, here]);
   useEffect(() => { draw(); }, [draw]);
   useEffect(() => {
     const v = vRef.current;
@@ -112,8 +125,10 @@ export const AnalysisViewer = ({ b }) => {
           onLoadedData={() => { const v = vRef.current; setLoading(false); setDur(v.duration || 0); v.playbackRate = rate; const t0 = b.pose_track?.[0]?.t; if (t0 > 1 && v.currentTime < 0.1) { v.currentTime = t0; setT(t0); } draw(); }} onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onSeeked={draw} onError={() => { setLoading(false); setFailed(true); }} data-testid="viewer-video" />}
         {failed && <div className="absolute inset-0 grid place-items-center text-center text-sm text-amber-300 p-6 bg-black/80" data-testid="viewer-video-error">This browser can't play this video. The analysis results are unaffected; try Chrome, Safari or Edge.</div>}
         <canvas ref={cRef} className="absolute inset-0 w-full h-full pointer-events-none" data-testid="viewer-canvas" />
+        {here.length > 0 && <div className="absolute top-2 left-2 flex flex-col gap-1 pointer-events-none" data-testid="viewer-event-caption">{here.map((m, i) => <span key={i} className="text-xs font-semibold bg-[#0B132B]/85 text-white px-2 py-1 rounded">{m.label}</span>)}</div>}
         {loading && <div className="absolute inset-0 grid place-items-center text-slate-400 text-sm" data-testid="viewer-loading"><Loader2 className="animate-spin" /></div>}
       </div>
+      {events.length > 0 && <div className="flex flex-wrap gap-1.5 mt-3" data-testid="viewer-events"><span className="text-xs text-slate-500 self-center">Jump to:</span>{events.map((m) => <button key={m.idx} onClick={() => seek(m.idx / fps + 0.5 / fps)} className={`text-xs px-2 py-0.5 rounded border ${m.idx === frame ? "border-[#10B981] text-[#10B981]" : "border-white/10 hover:bg-white/10"}`} data-testid={`viewer-event-${m.idx}`}>{marks.filter((x) => x.idx === m.idx).map((x) => x.label).join(" · ")} <span className="font-mono text-slate-500">{m.t.toFixed(2)}s</span></button>)}</div>}
       <div className="flex items-center gap-2 mt-3">
         <button onClick={() => step(-1)} className="p-1.5 rounded bg-white/5 hover:bg-white/10" aria-label="Previous frame" data-testid="viewer-prev-frame"><ChevronLeft size={16} /></button>
         <button onClick={toggle} className="p-1.5 rounded bg-[#10B981] text-[#0B132B]" aria-label={playing ? "Pause" : "Play"} data-testid="viewer-play">{playing ? <Pause size={16} /> : <Play size={16} />}</button>

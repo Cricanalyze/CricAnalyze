@@ -9,7 +9,7 @@ from reportlab.platypus import BaseDocTemplate, PageTemplate, Frame, Paragraph, 
 from core import db, now, uid, get_object, put_object, BUCKET_PREFIX
 import report_view
 
-PDF_VERSION = "3.1"
+PDF_VERSION = "3.2"
 LOGO = Path(__file__).parent / "assets" / "logo_sm.png"
 NAVY, TEAL, EMERALD, INK, MUTED, LINE, SOFT = (colors.HexColor(c) for c in ("#0B132B", "#00A6C4", "#10B981", "#1C2541", "#5B6477", "#D6DCE5", "#F2F6FA"))
 W, H = A4
@@ -205,6 +205,15 @@ def build(rep, job, owner, blobs):
                          P("Frames are cropped around the player from the original video at the times shown. 'Approximate timing' frames are best estimates, not exact events.", "small"))
         if a.get("ball"):
             s.append(P("Ball: " + a["ball"]["text"] + " " + " ".join(a["ball"]["notes"]), "small"))
+        if a.get("assessments"):
+            rows = [[Paragraph(x, ST["th"]) for x in ("Assessment", "Result", "Details", "Reference frame")]]
+            for x in a["assessments"]:
+                det = "<br/>".join(f"{d['label']}: {d['value']}" for d in x["details"]) + (f"<br/>AI visual note (foot direction): {x['ai_note']}" if x.get("ai_note") else "")
+                img = fit_image(blobs[x["overlay_asset_id"]], 110, 80) if blobs.get(x.get("overlay_asset_id")) else P("—" if x["status"] != "measured" else "", "cell")
+                rows.append([P(f"<b>{x['name']}</b><br/>{x['status_label']}", "cell"), P(x["summary"] or x["reason"], "cell"), P(det or "", "cell"), img])
+            s += section(f"Bowling biomechanics - {a['angle']} camera", grid_table(rows, [95, 120, CW - 335, 120]),
+                         P("Measured from the original video frames at their original timestamps (2D body tracking). These assessments are not part of the technique score. "
+                           "Trunk lean is whole-trunk lean; lower-back bending and spinal curvature are not measured.", "small"))
         if not a["pose_available"]:
             s += section(f"{a['angle'].title()} camera", P("Body tracking wasn't available for this clip, so only the coach's visual notes are shown."))
     c = v["coaching"]
@@ -251,7 +260,7 @@ async def get_or_build(rep, job, owner):
             return (await asyncio.to_thread(get_object, a["storage_path"]))[0]
     blobs = {}
     for a in rep["view"]["angles"]:
-        for p in a["timeline"]:
+        for p in a["timeline"] + (a.get("assessments") or []):
             for k in ("overlay_asset_id", "frame_asset_id", "ball_overlay_asset_id"):
                 if p.get(k):
                     blobs[p[k]] = await _blob(p[k])
